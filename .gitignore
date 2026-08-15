@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite state / cache
+ytid.db
+ytid.db-wal
+ytid.db-shm
+*.sqlite
+*.sqlite3
+
+# Generated manifests
+manifest.json
+manifest.csv
+
+# Python build / cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS cruft
+.vscode/
+.idea/
+*.swp
+.DS_Store

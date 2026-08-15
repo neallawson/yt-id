@@ -1,0 +1,169 @@
+I have a folder full of video files with names such as:
+
+Art School Girlfriend - L.Y.A.T.T. (Official) [fFJG3Sjgm7U].webm
+A Sentence Of Sorts In Kongsvinger [0hEQi-cmnQY].webm
+Ash - Give Me Back My World (Official Music Video) [8uJppcr-lRY].webm
+A. Swayze & The Ghosts - Stay Right (Official Visualiser) [MU01v9mYQ6Y].webm
+Athena - The Who Live at Shea Stadium 1982 [R6FuscIwuTM].mp4
+Athens, Georgia [CKdRIp_TCrk].mkv
+A Timeless Performance of “Ventura Highway” - America (Live 1989) [ZxphfTxDjWA].webm
+Atlanta Rhythm Section - Doraville - 1974 (480p) [_7VVZQ_BYFE].mkv
+Atlanta Rhythm Section - Spooky [cMAo0m4E4Lc].webm
+Atomic Rooster - Breakthrough Take (1971) [mKWy9LhRjpE].webm
+Atomic Rooster - The Devils Answer [totp2] [8R5El2HWMIo].webm
+Atomic Rooster-Tomorrow Night (TOTP 1971) [L53aTgZ8B3Y].mp4
+August [wPnRADykW1E].webm
+Average White Band - Pick up the pieces [MfAJLGFWxYo].webm
+Baby Blue [1tLuzPrZJaY].webm
+Baby In Vain - Got It In You [0mMu-nl_DQc].mkv
+Bachman Turner Overdrive FULL CONCERT LIVE!!! @ YouTube Theater Los Angeles musicUcansee.com [3UtdFo4bAr8].webm
+Bad Company - Good Lovin' Gone Bad [5vmmr9c7600].mkv
+Badfinger - Live - Set Of Six (1972) [GqMETv49cwo].webm
+Bad Motor Scooter - Montrose ｜ The Midnight Special [xv-s2uKJm5U].webm
+BAD STUFF - Summer Girls (Official Audio) [Aemwnj0zOK4].webm
+Baker Street Muse⧸Jethro Tull [BOxwov8TCsw].mkv
+Ballad Of Peter Pumpkinhead (2001 Remaster) [2Y-wbDRvp9Q].webm
+Bass Drum of Death - Do Nothing (OFFICIAL VIDEO) [j3ELAjGD-jQ].webm
+Bastard John [0WBFVdaRbAc].webm
+
+In some cases, the band/artist name is first and song title next. In other cases, it's reversed. Lots of extraneous words ("Live!", name of the arena, etc.) also randomly appear in the file names. In all cases, the unique Youtube id is between square brackets - [].
+
+My problem: I need an automated way to read the files in the folder, figure out the artist, and move the file into target folder with a structure like this:
+
+/Music Videos/rock/Artist/*
+/Music Videos/jazz/Artist/*
+/Music Videos/classical/Artist/*
+
+So, id the genre and artist and move the file into the appropriate folder. Create the Artist folder if needed.
+
+Thoughts on a Solution:
+
+The reliable approach is a two-stage metadata pipeline, not trying to infer everything from the filename. Use the YouTube ID to retrieve the original video metadata, then match artist/title against a music database for genre; move only high-confidence matches and produce a review queue for the rest.
+
+YouTube’s own metadata includes title, channel, description, tags, and a broad video category, but that category is not a usable musical genre taxonomy. For example, “Music” cannot distinguish rock, jazz, or classical.
+
+Recommended design
+Scan supported video files recursively (.webm, .mkv, .mp4, etc.).
+
+Extract the final bracketed 11-character YouTube ID from each basename.
+
+Retrieve/cache YouTube metadata with yt-dlp, using the ID:
+
+bash
+yt-dlp --skip-download --dump-json 'https://www.youtube.com/watch?v=VIDEO_ID'
+yt-dlp can emit JSON metadata without downloading the video; it can also save .info.json sidecars.
+
+Determine artist and title:
+
+Prefer structured artist, track, and related fields when yt-dlp exposes them.
+
+Otherwise parse the YouTube title/channel heuristically.
+
+Search MusicBrainz using the likely artist + track title, retaining the score and MusicBrainz IDs.
+
+Map MusicBrainz tags to your controlled genre folders, e.g. rock, jazz, classical, pop, blues, metal, folk, electronic, other.
+
+Dry-run and write a CSV/JSON manifest before moving anything.
+
+Move only confident records, e.g.:
+
+text
+/Music Videos/rock/Atomic Rooster/Atomic Rooster - The Devil's Answer [8R5El2HWMIo].webm
+Anything ambiguous, unrecognized, compilation-like, or non-musical goes into a Needs Review report—not automatically into a guessed folder.
+
+MusicBrainz provides JSON search APIs suitable for recording and artist matching, but its public service requires a descriptive User-Agent and no more than one request per second, so caching is important.
+
+Why this beats filename parsing
+Your examples demonstrate why parsing purely by delimiters will be error-prone:
+
+Atomic Rooster - The Devils Answer is straightforward.
+
+Baker Street Muse⧸Jethro Tull reverses the expected relationship.
+
+A Timeless Performance of “Ventura Highway” - America (Live 1989) has prose, a quoted title, artist, performance context, and date.
+
+Athens, Georgia and August have no artist at all in the filename.
+
+Concerts, TV appearances, and live recordings often do not correspond cleanly to a single recording, so a music-database match may be misleading.
+
+The YouTube ID is the stable key. Treat the original filename as a hint only.
+
+Practical implementation choice
+Given your Linux/Python background, I would write a small Python tool using:
+
+pathlib for traversal/moves
+
+subprocess to invoke yt-dlp
+
+sqlite3 for a durable metadata and decision cache
+
+requests or musicbrainzngs for MusicBrainz lookup
+
+ffprobe only as a fallback to inspect already embedded tags
+
+a CSV report containing source path, ID, retrieved title, inferred artist/title, MusicBrainz match score, chosen genre, target path, and action
+
+A minimal decision model might be:
+
+text
+if structured_artist and structured_track:
+    use them
+elif MusicBrainz recording match score >= threshold:
+    use matched artist/title and mapped genre
+elif known artist appears in title/channel:
+    use artist, genre from local artist cache
+else:
+    mark review_required
+Maintain a local override file—YAML, JSON, or SQLite—such as:
+
+text
+artists:
+  Atomic Rooster: rock
+  Atlanta Rhythm Section: rock
+  Average White Band: funk
+  Jethro Tull: rock
+
+videos:
+  CKdRIp_TCrk:
+    artist: Unknown
+    genre: other
+    action: review
+That makes corrections permanent: once you resolve an oddball, later runs do not re-guess it.
+
+Keep genres intentionally coarse
+Do not use every genre tag returned by MusicBrainz. Normalize them to folders you actually want:
+
+python
+GENRE_MAP = {
+    "classic rock": "rock",
+    "hard rock": "rock",
+    "progressive rock": "rock",
+    "psychedelic rock": "rock",
+    "jazz fusion": "jazz",
+    "bebop": "jazz",
+    "baroque": "classical",
+    "romantic era": "classical",
+}
+For artists with mixed catalogs, genre may need to be recording-level, not artist-level. Jethro Tull is usually safely “rock,” whereas a composer, a jazz-fusion artist, or a channel with eclectic uploads may need title-specific classification.
+
+Safety features worth including
+Default to --dry-run; require --apply to move.
+
+Sanitize artist names for filesystem safety.
+
+Preserve the original filename initially, so the YouTube ID remains available.
+
+Detect collisions and append the YouTube ID rather than overwrite.
+
+Write move decisions to SQLite or JSON before each rename.
+
+Include --undo by replaying the move manifest in reverse.
+
+Set a confidence threshold; avoid auto-moving “unknown,” live compilation, documentary, location, and concert files.
+
+Existing tools
+beets is excellent for importing and moving audio media, including custom destination path formats and moving files rather than copying. But for a video collection sourced from YouTube—with informal titles and a need to resolve metadata from video IDs—I would use a custom script for the identification stage, then optionally use beets-style folder conventions afterward.
+
+The ideal workflow is: custom resolver → review report → approved move manifest → filesystem moves. It gives you automation for the obvious 70–90% while ensuring files like “Athens, Georgia” or a full concert do not get confidently placed under the wrong artist or genre.
+
+

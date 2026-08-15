@@ -1,0 +1,26 @@
+# Ground truth. Anything here wins over automated guesses and is permanent
+# across runs. Curate this from the review queue as you go.
+
+# Artist -> coarse genre bucket. Case-insensitive match on the resolved
+# artist name. This is the primary genre source in v1.
+artists:
+  Atomic Rooster: rock
+  Atlanta Rhythm Section: rock
+  Average White Band: funk
+  Jethro Tull: rock
+  Bad Company: rock
+  Badfinger: rock
+  Ash: rock
+
+# Per-video overrides keyed by the 11-char YouTube ID. Use for oddballs that
+# have no clean artist, live compilations, documentaries, locations, etc.
+# action: move | review | skip
+videos:
+  CKdRIp_TCrk:      # "Athens, Georgia" - a place, not a song
+    artist: Unknown
+    genre: other
+    action: review
+  wPnRADykW1E:      # "August" - ambiguous, no artist
+    artist: Unknown
+    genre: other
+    action: review
