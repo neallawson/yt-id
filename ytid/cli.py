@@ -20,6 +20,7 @@ from . import classify as classify_mod
 from . import db
 from . import fetch as fetch_mod
 from . import plan as plan_mod
+from . import resolve as resolve_mod
 from . import scan as scan_mod
 from .ytdlp_client import DEFAULT_BINARY, YtDlpNotFound, get_version
 
@@ -27,9 +28,53 @@ from .ytdlp_client import DEFAULT_BINARY, YtDlpNotFound, get_version
 def _cmd_scan(args) -> int:
     counts = scan_mod.scan(args.source, db_path=args.db)
     print(
-        f"scan: seen={counts['seen']} new={counts['new']} "
-        f"updated={counts['updated']} skipped_no_id={counts['skipped_no_id']}"
+        f"scan: seen={counts['seen']} new={counts['new']} updated={counts['updated']}"
     )
+    tally = resolve_mod.counts_by_status(db_path=args.db)
+    print(
+        "scan: status "
+        + " ".join(f"{k}={v}" for k, v in sorted(tally.items()))
+    )
+    need = sum(tally.get(s, 0) for s in resolve_mod.NEEDS_ATTENTION)
+    if need:
+        print(f"scan: {need} file(s) need manual attention -> run `ytid unresolved`")
+    return 0
+
+
+def _cmd_unresolved(args) -> int:
+    statuses = resolve_mod.NEEDS_ATTENTION if not args.all else ()
+    rows = resolve_mod.list_videos(
+        db_path=args.db, statuses=statuses, include_dash=args.include_dash
+    )
+    if not rows:
+        print("unresolved: nothing needs attention")
+        return 0
+    for r in rows:
+        yid = r["youtube_id"] or r["detected_id"] or "-"
+        print(
+            f"[{r['id']:>5}] {r['resolve_status']:<10} src={r['id_source']:<7} "
+            f"id={yid:<12} {r['filename']}"
+        )
+    print(f"unresolved: {len(rows)} file(s) listed")
+    return 0
+
+
+def _cmd_resolve(args) -> int:
+    try:
+        if args.ignore:
+            row = resolve_mod.set_ignored(row_id=args.id, path=args.path, db_path=args.db)
+            print(f"resolve: row {row['id']} marked ignored ({row['filename']})")
+        else:
+            row = resolve_mod.assign_id(
+                args.youtube_id, row_id=args.id, path=args.path, db_path=args.db
+            )
+            print(
+                f"resolve: row {row['id']} -> youtube_id={row['youtube_id']} "
+                f"(resolved) ({row['filename']})"
+            )
+    except (ValueError, LookupError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -113,6 +158,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan = sub.add_parser("scan", help="index source folder by YouTube ID")
     p_scan.add_argument("--source", required=True, help="folder to scan recursively")
     p_scan.set_defaults(func=_cmd_scan)
+
+    p_unres = sub.add_parser(
+        "unresolved", help="list tracked files needing manual attention"
+    )
+    p_unres.add_argument(
+        "--all", action="store_true", help="list every tracked file, not just unresolved"
+    )
+    p_unres.add_argument(
+        "--include-dash", action="store_true",
+        help="also list lower-confidence dash-suffix matches for auditing",
+    )
+    p_unres.set_defaults(func=_cmd_unresolved)
+
+    p_res = sub.add_parser("resolve", help="manually resolve a tracked file")
+    target = p_res.add_mutually_exclusive_group(required=True)
+    target.add_argument("--id", type=int, help="videos.id row identifier")
+    target.add_argument("--path", help="exact src_path of the file")
+    action = p_res.add_mutually_exclusive_group(required=True)
+    action.add_argument("--youtube-id", dest="youtube_id", help="assign this 11-char ID")
+    action.add_argument("--ignore", action="store_true", help="mark as ignored")
+    p_res.set_defaults(func=_cmd_resolve)
 
     p_fetch = sub.add_parser("fetch", help="resolve metadata via yt-dlp (slow)")
     p_fetch.add_argument("--binary", default=DEFAULT_BINARY, help="yt-dlp binary")

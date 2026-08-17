@@ -22,10 +22,14 @@ DEFAULT_DB_PATH = "ytid.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS videos (
-    youtube_id     TEXT PRIMARY KEY,
-    src_path       TEXT NOT NULL,
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    src_path       TEXT NOT NULL UNIQUE,
     filename       TEXT NOT NULL,
     ext            TEXT NOT NULL,
+    detected_id    TEXT,                              -- raw parse result (may repeat)
+    id_source      TEXT NOT NULL DEFAULT 'none',      -- bracket|dash|manual|none
+    youtube_id     TEXT UNIQUE,                       -- authoritative id used downstream
+    resolve_status TEXT NOT NULL DEFAULT 'unresolved',-- resolved|unresolved|duplicate|ignored
     raw_json       TEXT,
     fetch_status   TEXT NOT NULL DEFAULT 'pending',  -- pending|ok|error|unavailable
     fetch_error    TEXT,
@@ -65,8 +69,10 @@ CREATE TABLE IF NOT EXISTS moves (
     undone_at   TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_videos_fetch_status ON videos(fetch_status);
-CREATE INDEX IF NOT EXISTS idx_decisions_action    ON decisions(action);
+CREATE INDEX IF NOT EXISTS idx_videos_fetch_status   ON videos(fetch_status);
+CREATE INDEX IF NOT EXISTS idx_videos_resolve_status ON videos(resolve_status);
+CREATE INDEX IF NOT EXISTS idx_videos_id_source      ON videos(id_source);
+CREATE INDEX IF NOT EXISTS idx_decisions_action      ON decisions(action);
 """
 
 

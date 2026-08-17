@@ -28,7 +28,9 @@ def _select_targets(conn, retry_errors: bool, retry_unavailable: bool, limit: in
         statuses.append("unavailable")
     placeholders = ",".join("?" for _ in statuses)
     sql = (
-        f"SELECT youtube_id FROM videos WHERE fetch_status IN ({placeholders}) "
+        f"SELECT youtube_id FROM videos "
+        f"WHERE fetch_status IN ({placeholders}) "
+        f"  AND resolve_status = 'resolved' AND youtube_id IS NOT NULL "
         f"ORDER BY first_seen_at"
     )
     if limit:

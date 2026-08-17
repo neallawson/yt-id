@@ -174,7 +174,10 @@ def classify_all(
     now = datetime.now(timezone.utc).isoformat()
 
     with db.session(db_path) as conn:
-        rows = conn.execute("SELECT youtube_id, raw_json FROM videos").fetchall()
+        rows = conn.execute(
+            "SELECT youtube_id, raw_json FROM videos "
+            "WHERE resolve_status = 'resolved' AND youtube_id IS NOT NULL"
+        ).fetchall()
         for row in rows:
             meta = json.loads(row["raw_json"]) if row["raw_json"] else None
             d = decide(row["youtube_id"], meta, cfg)
