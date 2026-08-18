@@ -71,34 +71,111 @@ ytid resolve --id 42 --ignore
 Manual resolutions (`id_source = 'manual'`) and `ignored` rows are preserved
 across rescans.
 
-### Planned: `validate` (not yet implemented — high priority)
+### Validated, transactional `apply` (implemented)
 
-A sixth stage that confirms an `apply` actually did what the manifest said.
-Post-move integrity is just as crucial as the moves themselves: a move that
-half-succeeds, collides, or leaves a file behind must be detected, not assumed.
+> Status: **implemented.** `apply` pre-flights the whole manifest, journals
+> intent write-ahead, verifies each move as it completes, and defaults to
+> rolling back the entire run on the first failure. Select the policy with
+> `--on-error {rollback,stop,skip}` (default `rollback`). Cross-device moves are
+> still rejected at pre-flight (see the planned update below).
 
-Scope, from simple to detailed:
+**Decision:** validation happens *inline, per move, as each step completes* —
+not as a separate after-the-fact pass. After-the-fact validation only reassures
+you when everything already worked; when something fails mid-run it reports
+damage too late, with the tree already in a mixed state. Instead, a failure must
+**stop the action immediately**, and by default **roll back** everything this run
+did so the tree is returned to exactly how it started.
+
+The standalone `validate` stage is **not** dropped, but **demoted** to a
+secondary, independent audit (see the end of this section).
+
+#### 1. Pre-flight validation (before touching anything)
+
+Walk the entire manifest first and hard-fail *before* the first mutation if any
+of these hold. Most failures are structural and caught here, so a doomed run
+rarely begins:
+
+- a **source path is missing**, or a **destination already exists** (a collision
+  that should have been resolved at plan time),
+- the **destination volume differs from the source** (see atomicity below),
+- **insufficient free space** on the target volume,
+- **duplicate `to_path`s** within the manifest itself.
+
+#### 2. Per-move verification (validate each step)
+
+For each move: attempt it, then immediately assert the invariant before
+considering it done:
+
+- the **source path no longer exists**, AND
+- the **destination path exists**,
+- (optionally) the **size matches** — later, an optional checksum.
+
+#### 3. Atomicity of a single move
+
+- **Same filesystem (current scope):** use `os.rename`, which is atomic and
+  instantaneous. Cross-device moves are treated as a **pre-flight error** for
+  now.
+- **Cross-device (planned update):** copy to a temporary name → verify
+  size/checksum → atomically rename into place → only then delete the source.
+  The source is removed only once the destination is proven complete. Detected
+  and routed via the pre-flight volume check.
+
+#### 4. Journal intent *before* the move (write-ahead)
+
+The `moves` row must be written **before** the move, not after, so a crash is
+always discoverable and reversible:
+
+1. insert a `pending` moves row (intent recorded),
+2. perform the move,
+3. verify the invariant,
+4. mark the row `done`.
+
+A crash between steps leaves an in-flight `pending` record that can be
+reconciled or rolled back. (This requires adding a status column to the `moves`
+table.)
+
+#### 5. Failure policy (default: `rollback`)
+
+Exposed as a policy because a durable, write-ahead `moves` log makes true
+transaction semantics possible:
+
+- **`rollback`** *(default)* — on the first failure, halt **and reverse every
+  move made in this run**, returning the tree to its starting state. Either the
+  whole run lands cleanly or nothing changes.
+- **`stop`** — halt at once, exit non-zero, leaving already-completed moves in
+  place and recorded (resume later).
+- **`skip`** — best-effort: collect errors and continue (today's behavior, but
+  opt-in only).
+
+Any run that hits a hard failure exits non-zero.
+
+#### 6. State classification (benign vs. fatal, for idempotent resume)
+
+Verification distinguishes benign states from fatal ones so re-running is safe:
+
+- source **missing** + destination **exists** → **already applied** → treated as
+  success (idempotent / resumable),
+- source **exists** + destination **exists** → **unexpected collision** → fatal,
+- move raised, or destination **missing**, or **size mismatch** → partial/corrupt
+  → **fatal, triggers the failure policy**.
+
+#### Demoted: standalone `validate` as an independent audit
+
+`validate` remains useful as a *secondary* safety net, decoupled from the run
+that produced the moves:
 
 - **Simple** — compare expected vs. actual file counts per target folder against
-  the manifest's `move` rows.
-- **Detailed (preferred)** — for every applied change recorded in the `moves`
-  table, assert both sides of the move:
-  - the **source path no longer exists** (file was removed from its origin), and
-  - the **destination path exists** (file landed in `/<genre>/<Artist>/`).
-  Optionally verify size (and later, a checksum) matches to catch truncated or
-  partial copies.
+  the `move` rows.
+- **Detailed** — for every `done` row in the `moves` table, re-assert
+  source-gone + destination-exists (+ optional size/checksum), to catch **drift**
+  when other tools touch the tree, or to audit an old `apply` long after the
+  fact.
+- Emits a report (CSV/JSON) and a non-zero exit code on any hard failure, so it
+  is CI/cron friendly. It reads ground truth from the `moves` table and never
+  acts blindly — ambiguous findings go to a review list.
 
-Error handling is a first-class requirement, not an afterthought:
-
-- Classify each discrepancy: `missing_destination`, `source_still_present`,
-  `both_present` (copy-not-move), `neither_present` (lost file),
-  `size_mismatch`, `unexpected_extra`.
-- Emit a validation report (CSV/JSON, mirroring the manifest) and a non-zero
-  exit code when any hard failure is found, so it is CI/cron friendly.
-- Offer a `--repair` / reconcile path where safe (e.g. re-run a specific move),
-  and route anything ambiguous to a review list rather than acting blindly.
-- Read ground truth from the `moves` table so `validate` can run standalone,
-  long after the `apply` that produced it.
+In short: **inline verification + rollback is the guarantee; `validate` is the
+after-the-fact audit.**
 
 ## Requirements
 

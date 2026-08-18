@@ -139,15 +139,21 @@ def _cmd_apply(args) -> int:
         )
         return 0
 
-    counts = apply_mod.apply_manifest(args.manifest, db_path=args.db, dry_run=not args.apply)
+    result = apply_mod.apply_manifest(
+        args.manifest, db_path=args.db, dry_run=not args.apply, on_error=args.on_error,
+    )
     mode = "APPLY" if args.apply else "dry-run"
     print(
-        f"apply ({mode}): planned={counts['planned']} moved={counts['moved']} "
-        f"skipped={counts['skipped']} errors={counts['errors']}"
+        f"apply ({mode}, on-error={result['on_error']}): "
+        f"planned={result['planned']} moved={result['moved']} "
+        f"already_applied={result['already_applied']} "
+        f"rolled_back={result['rolled_back']} errors={result['errors']}"
     )
-    if not args.apply:
-        print("apply: pass --apply to actually move files")
-    return 0
+    for problem in result["problems"]:
+        print(f"  ! {problem}", file=sys.stderr)
+    if not args.apply and result["ok"]:
+        print("apply: pre-flight clean; pass --apply to actually move files")
+    return 0 if result["ok"] else 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -206,6 +212,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--manifest", required=True, help="manifest .json from plan")
     p_apply.add_argument("--apply", action="store_true", help="actually move files")
     p_apply.add_argument("--undo", action="store_true", help="reverse a prior apply")
+    p_apply.add_argument(
+        "--on-error", dest="on_error", choices=apply_mod.ON_ERROR_POLICIES,
+        default="rollback",
+        help="failure policy: rollback (default) reverses this run, stop halts, skip continues",
+    )
     p_apply.set_defaults(func=_cmd_apply)
 
     return parser
