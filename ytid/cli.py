@@ -116,6 +116,23 @@ def _cmd_classify(args) -> int:
     return 0
 
 
+def _cmd_review(args) -> int:
+    rows = classify_mod.list_decisions(db_path=args.db, action=args.action)
+    if not rows:
+        print(f"review: no decisions with action={args.action}")
+        return 0
+    for r in rows:
+        artist = r["artist"] or "-"
+        print(
+            f"{r['youtube_id']}  [{r['action']}] conf={r['confidence']:.2f} "
+            f"fetch={r['fetch_status']}  {artist}"
+        )
+        print(f"    {r['filename']}")
+        print(f"    reason: {r['reason']}")
+    print(f"review: {len(rows)} item(s) with action={args.action}")
+    return 0
+
+
 def _cmd_plan(args) -> int:
     planned = plan_mod.build_plan(args.target, db_path=args.db)
     paths = plan_mod.write_manifest(planned, args.out)
@@ -202,6 +219,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_classify = sub.add_parser("classify", help="decide artist/genre/action")
     p_classify.add_argument("--config", default="config", help="config directory")
     p_classify.set_defaults(func=_cmd_classify)
+
+    p_review = sub.add_parser(
+        "review", help="list the manual-review bucket (classify decisions)"
+    )
+    p_review.add_argument(
+        "--action", choices=["review", "skip", "move", "all"], default="review",
+        help="which decisions to list (default: review)",
+    )
+    p_review.set_defaults(func=_cmd_review)
 
     p_plan = sub.add_parser("plan", help="build a dry-run move manifest")
     p_plan.add_argument("--target", required=True, help="target root, e.g. '/Music Videos'")

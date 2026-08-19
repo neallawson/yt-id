@@ -18,7 +18,7 @@ network-bound work is isolated from the fast, local work:
 |-----------|-----------------------------------------------------|--------------|
 | `scan`    | Track every video file; parse IDs; set resolve status| fast, local  |
 | `fetch`   | Resolve uncached IDs via yt-dlp (resumable)         | slow, network|
-| `classify`| Derive artist/title/genre from cache + overrides    | fast, local  |
+| `classify`| Derive artist/title/genre + action; `review` lists it| fast, local  |
 | `plan`    | Build a dry-run move manifest (CSV/JSON)            | fast, local  |
 | `apply`   | Execute the manifest; `--undo` reverses it          | fast, local  |
 | `validate`| Verify the manifest was executed correctly (planned)| fast, local  |
@@ -70,6 +70,32 @@ ytid resolve --id 42 --ignore
 
 Manual resolutions (`id_source = 'manual'`) and `ignored` rows are preserved
 across rescans.
+
+### Review bucket (manual handling)
+
+`classify` assigns every tracked video an `action` of `move`, `review`, or
+`skip`, but it **never auto-skips**: anything it cannot confidently route to a
+genre folder — non-music videos, unavailable/unfetched IDs, unknown artists — is
+sent to **`review`**, not dropped. `skip` only ever happens when *you* set it
+explicitly in `config/overrides.yaml`. Every file therefore stays tracked in the
+`decisions` table.
+
+Like the ID worklist, the review bucket is just a query:
+
+```bash
+# List everything needing manual handling (action = 'review')
+ytid review
+
+# List a specific bucket, or everything
+ytid review --action move
+ytid review --action skip
+ytid review --action all
+```
+
+Each entry shows the ID, decision, confidence, fetch status, derived artist,
+filename, and the reason it landed in review — so you can curate
+`config/overrides.yaml` (e.g. add an artist→genre mapping) and re-run
+`classify` to promote items to `move`.
 
 ### Validated, transactional `apply` (implemented)
 

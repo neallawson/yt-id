@@ -164,6 +164,30 @@ def decide(youtube_id: str, meta: dict | None, cfg: Config) -> Decision:
     )
 
 
+def list_decisions(
+    db_path: str | Path = db.DEFAULT_DB_PATH,
+    action: str = "review",
+) -> list[dict]:
+    """Return classify decisions joined with file info, for a manual worklist.
+
+    action='review' (default) is the manual-handling bucket. Pass 'all' to list
+    every decision, or a specific action ('move'|'skip'|'review').
+    """
+    sql = (
+        "SELECT d.youtube_id, d.action, d.artist, d.title, d.genre, d.reason, "
+        "       d.confidence, v.filename, v.src_path, v.fetch_status "
+        "  FROM decisions d "
+        "  JOIN videos v ON v.youtube_id = d.youtube_id "
+    )
+    params: list[str] = []
+    if action != "all":
+        sql += " WHERE d.action = ? "
+        params.append(action)
+    sql += " ORDER BY d.action, v.filename"
+    with db.session(db_path) as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
 def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     config_dir: str | Path = "config",
