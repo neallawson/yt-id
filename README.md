@@ -97,6 +97,17 @@ filename, and the reason it landed in review — so you can curate
 `config/overrides.yaml` (e.g. add an artist→genre mapping) and re-run
 `classify` to promote items to `move`.
 
+**Artist-only moves.** By default a `move` needs both a confident artist and a
+genre. Pass `classify --allow-missing-genre` to also move files that have a
+confident artist but no genre — these are filed directly under
+`<target_root>/<Artist>/` (genre folder omitted). The confidence gate is
+unchanged, so only reliably-identified artists are promoted; low-confidence
+heuristic parses stay in `review`.
+
+```bash
+ytid classify --allow-missing-genre
+```
+
 ### Validated, transactional `apply` (implemented)
 
 > Status: **implemented.** `apply` pre-flights the whole manifest, journals

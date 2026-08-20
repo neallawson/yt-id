@@ -89,7 +89,12 @@ def _structured_fields(meta: dict) -> tuple[str | None, str | None]:
     return _clean(artist), _clean(track)
 
 
-def decide(youtube_id: str, meta: dict | None, cfg: Config) -> Decision:
+def decide(
+    youtube_id: str,
+    meta: dict | None,
+    cfg: Config,
+    allow_missing_genre: bool = False,
+) -> Decision:
     now_reason = []
 
     # 1. Per-video override wins unconditionally.
@@ -143,9 +148,12 @@ def decide(youtube_id: str, meta: dict | None, cfg: Config) -> Decision:
         if genre:
             now_reason.append("genre from structured field")
 
-    # Decide the action.
-    if artist and genre and confidence >= 0.6:
+    # Decide the action. A confident artist is required; genre is required too
+    # unless allow_missing_genre lets confident artist-only files land in /Artist.
+    if artist and confidence >= 0.6 and (genre or allow_missing_genre):
         action = "move"
+        if not genre:
+            now_reason.append("artist-only (no genre)")
     else:
         action = "review"
         if not genre:
@@ -191,8 +199,14 @@ def list_decisions(
 def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     config_dir: str | Path = "config",
+    allow_missing_genre: bool = False,
 ) -> dict[str, int]:
-    """Classify every known video and upsert into the decisions table."""
+    """Classify every known video and upsert into the decisions table.
+
+    When allow_missing_genre is True, a confidently-identified artist with no
+    genre is moved into `<target>/<Artist>/` (genre folder omitted) rather than
+    routed to review. Low-confidence artists still go to review.
+    """
     cfg = load_config(config_dir)
     counts = {"total": 0, "move": 0, "review": 0, "skip": 0}
     now = datetime.now(timezone.utc).isoformat()
@@ -204,7 +218,7 @@ def classify_all(
         ).fetchall()
         for row in rows:
             meta = json.loads(row["raw_json"]) if row["raw_json"] else None
-            d = decide(row["youtube_id"], meta, cfg)
+            d = decide(row["youtube_id"], meta, cfg, allow_missing_genre)
             conn.execute(
                 """
                 INSERT INTO decisions

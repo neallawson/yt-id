@@ -108,7 +108,10 @@ def _cmd_fetch(args) -> int:
 
 
 def _cmd_classify(args) -> int:
-    counts = classify_mod.classify_all(db_path=args.db, config_dir=args.config)
+    counts = classify_mod.classify_all(
+        db_path=args.db, config_dir=args.config,
+        allow_missing_genre=args.allow_missing_genre,
+    )
     print(
         f"classify: total={counts['total']} move={counts.get('move', 0)} "
         f"review={counts.get('review', 0)} skip={counts.get('skip', 0)}"
@@ -218,6 +221,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_classify = sub.add_parser("classify", help="decide artist/genre/action")
     p_classify.add_argument("--config", default="config", help="config directory")
+    p_classify.add_argument(
+        "--allow-missing-genre", dest="allow_missing_genre", action="store_true",
+        help="move confident artist-only files into /Artist (no genre folder)",
+    )
     p_classify.set_defaults(func=_cmd_classify)
 
     p_review = sub.add_parser(

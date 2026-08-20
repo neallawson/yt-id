@@ -65,3 +65,30 @@ def test_structured_genre_normalized():
     d = decide("aaaaaaaaaaa", meta, cfg)
     assert d.genre == "rock"
     assert d.action == "move"
+
+
+def test_confident_artist_no_genre_is_review_by_default():
+    cfg = make_config()
+    # Structured artist/track (confidence 0.9) but unknown genre.
+    meta = {"artist": "Unknown Band", "track": "A Song"}
+    d = decide("bbbbbbbbbbb", meta, cfg)
+    assert d.genre is None
+    assert d.action == "review"
+
+
+def test_allow_missing_genre_moves_confident_artist_only():
+    cfg = make_config()
+    meta = {"artist": "Unknown Band", "track": "A Song"}
+    d = decide("bbbbbbbbbbb", meta, cfg, allow_missing_genre=True)
+    assert d.genre is None
+    assert d.action == "move"
+    assert "artist-only (no genre)" in d.reason
+
+
+def test_allow_missing_genre_still_reviews_low_confidence():
+    cfg = make_config()
+    # Heuristic title split -> confidence 0.5, below the move threshold.
+    meta = {"title": "Unknown Artist - Some Song"}
+    d = decide("ccccccccccc", meta, cfg, allow_missing_genre=True)
+    assert d.genre is None
+    assert d.action == "review"

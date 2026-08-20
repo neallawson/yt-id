@@ -5,6 +5,7 @@ missing genre/artist) is emitted into the review report so no file is ever
 placed under a guessed folder.
 
 Target layout: <target_root>/<genre>/<Artist>/<original filename>
+(when a move has no genre, the genre folder is omitted: <target_root>/<Artist>/...)
 
 Filesystem safety:
 - artist/genre path components are sanitized (slashes, control chars, reserved
@@ -55,8 +56,13 @@ class PlannedMove:
     to_path: str | None
 
 
-def _target_path(target_root: Path, genre: str, artist: str, filename: str) -> Path:
-    return target_root / sanitize_component(genre) / sanitize_component(artist) / filename
+def _target_path(
+    target_root: Path, genre: str | None, artist: str, filename: str
+) -> Path:
+    dest = target_root
+    if genre:
+        dest = dest / sanitize_component(genre)
+    return dest / sanitize_component(artist) / filename
 
 
 def _resolve_collision(dest: Path, youtube_id: str, taken: set[str]) -> Path:
@@ -89,7 +95,7 @@ def build_plan(
 
         for r in rows:
             to_path: str | None = None
-            if r["action"] == "move" and r["artist"] and r["genre"]:
+            if r["action"] == "move" and r["artist"]:
                 dest = _target_path(target_root, r["genre"], r["artist"], r["filename"])
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))
