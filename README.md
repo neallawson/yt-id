@@ -214,6 +214,33 @@ that produced the moves:
 In short: **inline verification + rollback is the guarantee; `validate` is the
 after-the-fact audit.**
 
+### Path storage & relocation (planned)
+
+Today paths are stored **as given**: the DB records whatever `--source` you pass
+(absolute or relative) and, after a move, the file's new absolute location under
+`--target`. The DB itself defaults to `ytid.db` in the current directory. For
+robustness, prefer an **absolute** `--source` so stored paths don't depend on
+the working directory of later stages.
+
+**Why in-DB path portability is deferred.** The deliverable of this tool is the
+*organized tree*, not a self-describing bundle. Once `apply` completes and the
+moves are validated, the target is an ordinary directory tree you can `mv`,
+`rsync`, or `ssh` anywhere — no database required to relocate it. In-DB
+relative/anchored paths would only help while a DB is still *mid-pipeline*
+(scanned but not yet applied), which is the lower-value window. So it is
+intentionally postponed.
+
+**Planned: `ytid relink`.** For the mid-pipeline case (e.g. you move the source
+tree before applying), a future command will re-point stored paths in bulk:
+
+```bash
+# planned, not yet implemented
+ytid relink --from /old/source/root --to /new/source/root
+```
+
+This would update stored paths against recorded source/target roots, so an
+interrupted, half-organized job can survive a relocation without a rescan.
+
 ## Requirements
 
 - Python >= 3.10
