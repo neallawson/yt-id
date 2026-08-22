@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from ytid import db
-from ytid.plan import build_plan, clean_filename, sanitize_component
+from ytid.plan import (
+    build_plan,
+    clean_filename,
+    enhance_filename,
+    sanitize_component,
+)
 
 
 def test_illegal_chars_replaced():
@@ -24,7 +29,7 @@ def test_normal_unicode_preserved():
     assert sanitize_component("Motörhead") == "Motörhead"
 
 
-def _seed_move(db_path, yid, filename, artist, genre):
+def _seed_move(db_path, yid, filename, artist, genre, title=None):
     now = "2026-01-01T00:00:00+00:00"
     with db.session(db_path) as conn:
         conn.execute(
@@ -36,8 +41,8 @@ def _seed_move(db_path, yid, filename, artist, genre):
         conn.execute(
             "INSERT INTO decisions (youtube_id, artist, title, genre, "
             "target_path, action, confidence, reason, decided_at) "
-            "VALUES (?, ?, NULL, ?, NULL, 'move', 0.9, 'test', ?)",
-            (yid, artist, genre, now),
+            "VALUES (?, ?, ?, ?, NULL, 'move', 0.9, 'test', ?)",
+            (yid, artist, title, genre, now),
         )
 
 
@@ -154,3 +159,72 @@ def test_plan_default_preserves_original_filename(tmp_path):
     planned = build_plan(tmp_path / "out", db_path=db_path)
     pm = next(p for p in planned if p.youtube_id == "ddddddddddd")
     assert Path(pm.to_path).name == "Bad: Name?.mp4"
+
+
+# --- enhance_filename: prepend artist/title --------------------------------
+
+
+def test_enhance_id_only_bracket_prepends_both():
+    assert (
+        enhance_filename("[dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
+        == "Nazz_Open_My_Eyes_[dQw4w9WgXcQ].mp4"
+    )
+
+
+def test_enhance_id_only_dash_keeps_suffix_id():
+    assert (
+        enhance_filename("just-abcdefghijk.webm", "Nazz", "Open My Eyes", None)
+        == "Nazz_Open_My_Eyes_just-abcdefghijk.webm"
+    )
+
+
+def test_enhance_skips_title_already_present():
+    assert (
+        enhance_filename("Open My Eyes [dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
+        == "Nazz_Open My Eyes [dQw4w9WgXcQ].mp4"
+    )
+
+
+def test_enhance_both_present_returns_base_unchanged():
+    name = "Nazz - Open My Eyes [dQw4w9WgXcQ].mp4"
+    assert enhance_filename(name, "Nazz", "Open My Eyes", None) == name
+
+
+def test_enhance_dedups_when_artist_equals_title():
+    assert (
+        enhance_filename("[dQw4w9WgXcQ].mp4", "Foo", "Foo", None)
+        == "Foo_[dQw4w9WgXcQ].mp4"
+    )
+
+
+def test_enhance_missing_artist_uses_title_only():
+    assert (
+        enhance_filename("[dQw4w9WgXcQ].mp4", None, "Solo Track", None)
+        == "Solo_Track_[dQw4w9WgXcQ].mp4"
+    )
+
+
+def test_enhance_combined_with_moderate_clean():
+    assert (
+        enhance_filename("A&B [dQw4w9WgXcQ].mp4", "AC/DC", "Hells & Bells", "moderate")
+        == "AC-DC_Hells_Bells_A-B_[dQw4w9WgXcQ].mp4"
+    )
+
+
+def test_enhance_is_idempotent():
+    once = enhance_filename("[dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
+    assert enhance_filename(once, "Nazz", "Open My Eyes", None) == once
+
+
+# --- plan integration: enhance_names flows into to_path --------------------
+
+
+def test_plan_enhance_names_applied(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "eeeeeeeeeee", "[dQw4w9WgXcQ].mp4", "Nazz", None,
+        title="Open My Eyes",
+    )
+    planned = build_plan(tmp_path / "out", db_path=db_path, enhance_names=True)
+    pm = next(p for p in planned if p.youtube_id == "eeeeeeeeeee")
+    assert Path(pm.to_path).name == "Nazz_Open_My_Eyes_[dQw4w9WgXcQ].mp4"

@@ -249,6 +249,40 @@ Levels differ only in *which* characters are treated as bad:
 Example (`moderate`): `Song (Live) & More [abcdefghijk].mp4` →
 `Song_Live_More_[abcdefghijk].mp4`.
 
+### Filename enhancing (`plan --enhance-names`)
+
+Some source files carry no identifying text at all — the only clue is the
+YouTube ID. Since `classify` has already resolved the **artist** and **title**,
+`plan --enhance-names` can fold them back into the destination filename:
+
+```bash
+ytid plan --target "/Music Videos" --enhance-names
+ytid plan --target "/Music Videos" --enhance-names --clean-names moderate
+```
+
+Shape produced:
+
+```
+Artist_Title_<original-rest-including-youtubeid>.ext
+# ID-only source:
+[dQw4w9WgXcQ].mp4          ->  Nazz_Open_My_Eyes_[dQw4w9WgXcQ].mp4
+just-abcdefghijk.webm     ->  Nazz_Open_My_Eyes_just-abcdefghijk.webm
+```
+
+Behavior:
+
+- **Always prepends** the known artist/title to every moved file, but with a
+  **duplication guard**: each fragment is skipped when it is already present in
+  the name (tolerant, case-insensitive match), so `Open My Eyes [id].mp4`
+  becomes `Nazz_Open My Eyes [id].mp4`, not a doubled title. If both are already
+  present, the name is left unchanged.
+- **Partial data** is fine: whichever of artist/title is known gets added.
+- The **YouTube-ID token and extension** are always preserved.
+- Injected artist/title text is **always sanitized** (OS-safe) regardless of
+  `--clean-names`. Combine with `--clean-names` to also scrub the original tail;
+  on its own, `--enhance-names` leaves the existing tail untouched.
+- The transform is **idempotent** — re-running does not stack prefixes.
+
 ### Path storage & relocation (planned)
 
 Today paths are stored **as given**: the DB records whatever `--source` you pass

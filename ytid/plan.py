@@ -73,36 +73,18 @@ def _is_bad(ch: str, moderate: bool) -> bool:
     return moderate and ch in _MODERATE_EXTRA
 
 
-def clean_filename(name: str, level: str | None) -> str:
-    """Return an OS-safe, tidied version of a filename.
+def _clean_stem(stem: str, span: tuple[int, int] | None, moderate: bool) -> str:
+    """Core stem scrubber shared by clean_filename and token normalization.
 
-    Goals: stay as close to the original as possible while removing characters
-    that trip other software. The YouTube-ID token and the file extension are
-    preserved verbatim. Whitespace runs collapse to a single underscore; runs of
-    removed characters collapse to nothing, except a single dash is inserted as a
-    seam when removal would otherwise concatenate two kept characters.
-
-    level:
-      - None            -> no change (original name returned)
-      - 'conservative'  -> remove only filesystem-illegal/control characters
-      - 'moderate'      -> also neutralize shell-hostile characters
+    Whitespace runs collapse to a single underscore; runs of removed characters
+    collapse to nothing, except a single dash seam is inserted when removal would
+    otherwise concatenate two kept characters. Characters inside `span` (the
+    protected YouTube-ID token) are always emitted verbatim.
     """
-    if level is None:
-        return name
-    if level not in CLEAN_LEVELS:
-        raise ValueError(f"level must be one of {CLEAN_LEVELS} or None")
-    moderate = level == "moderate"
-
-    ext = Path(name).suffix
-    stem = name[: len(name) - len(ext)] if ext else name
-
-    span = _id_span(stem)
 
     def in_span(idx: int) -> bool:
         return span is not None and span[0] <= idx < span[1]
 
-    # Tokenize the stem into content chars, whitespace runs, and bad-char runs.
-    # Characters inside the protected ID span are always emitted verbatim.
     tokens: list[tuple[str, str]] = []
     i, n = 0, len(stem)
     while i < n:
@@ -146,12 +128,95 @@ def clean_filename(name: str, level: str | None) -> str:
     cleaned = re.sub(r"(?:_-|-_)+", "_", cleaned)  # whitespace wins over seam
     cleaned = cleaned.strip("_-")
     cleaned = cleaned.rstrip(" .")  # Windows: no trailing dot/space
+    return cleaned
+
+
+def _squash(s: str) -> str:
+    """Reduce to lowercase alphanumerics for tolerant substring comparison."""
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+
+def _norm_token(text: str, moderate: bool) -> str:
+    """Normalize a free-form artist/title into an OS-safe filename fragment."""
+    return _clean_stem(text.strip(), None, moderate)
+
+
+def clean_filename(name: str, level: str | None) -> str:
+    """Return an OS-safe, tidied version of a filename.
+
+    Goals: stay as close to the original as possible while removing characters
+    that trip other software. The YouTube-ID token and the file extension are
+    preserved verbatim. Whitespace runs collapse to a single underscore; runs of
+    removed characters collapse to nothing, except a single dash is inserted as a
+    seam when removal would otherwise concatenate two kept characters.
+
+    level:
+      - None            -> no change (original name returned)
+      - 'conservative'  -> remove only filesystem-illegal/control characters
+      - 'moderate'      -> also neutralize shell-hostile characters
+    """
+    if level is None:
+        return name
+    if level not in CLEAN_LEVELS:
+        raise ValueError(f"level must be one of {CLEAN_LEVELS} or None")
+    moderate = level == "moderate"
+
+    ext = Path(name).suffix
+    stem = name[: len(name) - len(ext)] if ext else name
+
+    cleaned = _clean_stem(stem, _id_span(stem), moderate)
 
     if not cleaned:
         cleaned = extract_youtube_id(name)[0] or "Unknown"
     if cleaned.lower() in _RESERVED:
         cleaned = "_" + cleaned
     return cleaned[:200] + ext
+
+
+def enhance_filename(
+    name: str,
+    artist: str | None,
+    title: str | None,
+    level: str | None,
+) -> str:
+    """Prepend the known artist/title to a filename, keeping ID + extension.
+
+    Produces roughly `Artist_Title_<original-rest-including-id>.ext`. Each of
+    the artist/title fragments is normalized to be OS-safe and is skipped when
+    it is already present in the name (tolerant, case-insensitive match), so
+    already-descriptive files are not doubled up. The original tail is scrubbed
+    per `level` (or left as-is when `level` is None), while the injected
+    fragments are always sanitized.
+    """
+    base = clean_filename(name, level) if level else name
+    ext = Path(base).suffix
+    stem = base[: len(base) - len(ext)] if ext else base
+
+    moderate = level == "moderate"
+    seen = _squash(stem)
+    parts: list[str] = []
+    for token in (artist, title):
+        if not token:
+            continue
+        norm = _norm_token(token, moderate)
+        squashed = _squash(norm)
+        if not squashed or squashed in seen:
+            continue  # missing after normalization, or already present
+        parts.append(norm)
+        seen += squashed  # guard against artist == title duplication
+
+    if not parts:
+        return base
+
+    prefix = "_".join(parts)
+    combined = f"{prefix}_{stem}" if stem else prefix
+    combined = re.sub(r"_+", "_", combined).strip("_-")
+
+    if not combined:
+        combined = extract_youtube_id(name)[0] or "Unknown"
+    if combined.lower() in _RESERVED:
+        combined = "_" + combined
+    return combined[:200] + ext
 
 
 @dataclass
@@ -173,11 +238,18 @@ def _target_path(
     artist: str,
     filename: str,
     clean_names: str | None = None,
+    title: str | None = None,
+    enhance_names: bool = False,
 ) -> Path:
     dest = target_root
     if genre:
         dest = dest / sanitize_component(genre)
-    fname = clean_filename(filename, clean_names) if clean_names else filename
+    if enhance_names:
+        fname = enhance_filename(filename, artist, title, clean_names)
+    elif clean_names:
+        fname = clean_filename(filename, clean_names)
+    else:
+        fname = filename
     return dest / sanitize_component(artist) / fname
 
 
@@ -194,6 +266,7 @@ def build_plan(
     target_root: str | Path,
     db_path: str | Path = db.DEFAULT_DB_PATH,
     clean_names: str | None = None,
+    enhance_names: bool = False,
 ) -> list[PlannedMove]:
     target_root = Path(target_root).expanduser()
     planned: list[PlannedMove] = []
@@ -214,7 +287,8 @@ def build_plan(
             to_path: str | None = None
             if r["action"] == "move" and r["artist"]:
                 dest = _target_path(
-                    target_root, r["genre"], r["artist"], r["filename"], clean_names
+                    target_root, r["genre"], r["artist"], r["filename"],
+                    clean_names, title=r["title"], enhance_names=enhance_names,
                 )
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))

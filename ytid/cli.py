@@ -138,7 +138,8 @@ def _cmd_review(args) -> int:
 
 def _cmd_plan(args) -> int:
     planned = plan_mod.build_plan(
-        args.target, db_path=args.db, clean_names=args.clean_names
+        args.target, db_path=args.db, clean_names=args.clean_names,
+        enhance_names=args.enhance_names,
     )
     paths = plan_mod.write_manifest(planned, args.out)
     summary = plan_mod.summarize(planned)
@@ -246,6 +247,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="clean destination filenames: 'conservative' (remove only "
              "filesystem-illegal/control chars) or 'moderate' (also neutralize "
              "shell-hostile chars). Default: off (preserve original names).",
+    )
+    p_plan.add_argument(
+        "--enhance-names", dest="enhance_names", action="store_true",
+        help="prepend the known artist/title to each destination filename "
+             "(Artist_Title_<rest-including-youtubeid>.ext), skipping any part "
+             "already present. Injected text is always sanitized; combine with "
+             "--clean-names to also scrub the original tail. Default: off.",
     )
     p_plan.set_defaults(func=_cmd_plan)
 
