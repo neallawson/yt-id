@@ -137,7 +137,9 @@ def _cmd_review(args) -> int:
 
 
 def _cmd_plan(args) -> int:
-    planned = plan_mod.build_plan(args.target, db_path=args.db)
+    planned = plan_mod.build_plan(
+        args.target, db_path=args.db, clean_names=args.clean_names
+    )
     paths = plan_mod.write_manifest(planned, args.out)
     summary = plan_mod.summarize(planned)
     print(
@@ -239,6 +241,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan = sub.add_parser("plan", help="build a dry-run move manifest")
     p_plan.add_argument("--target", required=True, help="target root, e.g. '/Music Videos'")
     p_plan.add_argument("--out", default="manifest", help="output prefix for .json/.csv")
+    p_plan.add_argument(
+        "--clean-names", dest="clean_names", choices=plan_mod.CLEAN_LEVELS, default=None,
+        help="clean destination filenames: 'conservative' (remove only "
+             "filesystem-illegal/control chars) or 'moderate' (also neutralize "
+             "shell-hostile chars). Default: off (preserve original names).",
+    )
     p_plan.set_defaults(func=_cmd_plan)
 
     p_apply = sub.add_parser("apply", help="execute (or undo) a manifest")

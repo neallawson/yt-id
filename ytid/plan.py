@@ -23,6 +23,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import db
+from .scan import _BRACKET_RE, _DASH_RE, extract_youtube_id
+
+CLEAN_LEVELS = ("conservative", "moderate")
+
+# Characters that are illegal in filenames on common filesystems (reused from
+# the folder sanitizer): < > : " / \ | ? * and C0 control chars.
+# Additionally neutralized under the 'moderate' level: shell-hostile but
+# otherwise-legal characters that routinely trip scripts and other tools.
+_MODERATE_EXTRA = set("'\"`&;$(){}!#@~%")
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {
@@ -43,6 +52,108 @@ def sanitize_component(name: str, fallback: str = "Unknown") -> str:
     return name[:200]
 
 
+def _id_span(stem: str) -> tuple[int, int] | None:
+    """Return the (start, end) span of the YouTube-ID token within a stem.
+
+    Bracket form `[<id>]` is preferred; the dash-suffix form `-<id>` at the end
+    is protected together with its leading dash so the separator survives.
+    """
+    m = _BRACKET_RE.search(stem)
+    if m:
+        return m.span()
+    m = _DASH_RE.search(stem)
+    if m:
+        return m.span()
+    return None
+
+
+def _is_bad(ch: str, moderate: bool) -> bool:
+    if _ILLEGAL.match(ch):
+        return True
+    return moderate and ch in _MODERATE_EXTRA
+
+
+def clean_filename(name: str, level: str | None) -> str:
+    """Return an OS-safe, tidied version of a filename.
+
+    Goals: stay as close to the original as possible while removing characters
+    that trip other software. The YouTube-ID token and the file extension are
+    preserved verbatim. Whitespace runs collapse to a single underscore; runs of
+    removed characters collapse to nothing, except a single dash is inserted as a
+    seam when removal would otherwise concatenate two kept characters.
+
+    level:
+      - None            -> no change (original name returned)
+      - 'conservative'  -> remove only filesystem-illegal/control characters
+      - 'moderate'      -> also neutralize shell-hostile characters
+    """
+    if level is None:
+        return name
+    if level not in CLEAN_LEVELS:
+        raise ValueError(f"level must be one of {CLEAN_LEVELS} or None")
+    moderate = level == "moderate"
+
+    ext = Path(name).suffix
+    stem = name[: len(name) - len(ext)] if ext else name
+
+    span = _id_span(stem)
+
+    def in_span(idx: int) -> bool:
+        return span is not None and span[0] <= idx < span[1]
+
+    # Tokenize the stem into content chars, whitespace runs, and bad-char runs.
+    # Characters inside the protected ID span are always emitted verbatim.
+    tokens: list[tuple[str, str]] = []
+    i, n = 0, len(stem)
+    while i < n:
+        if in_span(i):
+            for k in range(i, span[1]):
+                tokens.append(("c", stem[k]))
+            i = span[1]
+            continue
+        ch = stem[i]
+        if ch.isspace():
+            j = i + 1
+            while j < n and not in_span(j) and stem[j].isspace():
+                j += 1
+            tokens.append(("sp", ""))
+            i = j
+        elif _is_bad(ch, moderate):
+            j = i + 1
+            while j < n and not in_span(j) and _is_bad(stem[j], moderate):
+                j += 1
+            tokens.append(("bad", ""))
+            i = j
+        else:
+            tokens.append(("c", ch))
+            i += 1
+
+    out: list[str] = []
+    for idx, (kind, ch) in enumerate(tokens):
+        if kind == "c":
+            out.append(ch)
+        elif kind == "sp":
+            out.append("_")
+        else:  # bad run: seam only when flanked by content on both sides
+            prev_content = idx > 0 and tokens[idx - 1][0] == "c"
+            next_content = idx + 1 < len(tokens) and tokens[idx + 1][0] == "c"
+            if prev_content and next_content:
+                out.append("-")
+
+    cleaned = "".join(out)
+    cleaned = re.sub(r"_+", "_", cleaned)
+    cleaned = re.sub(r"-+", "-", cleaned)
+    cleaned = re.sub(r"(?:_-|-_)+", "_", cleaned)  # whitespace wins over seam
+    cleaned = cleaned.strip("_-")
+    cleaned = cleaned.rstrip(" .")  # Windows: no trailing dot/space
+
+    if not cleaned:
+        cleaned = extract_youtube_id(name)[0] or "Unknown"
+    if cleaned.lower() in _RESERVED:
+        cleaned = "_" + cleaned
+    return cleaned[:200] + ext
+
+
 @dataclass
 class PlannedMove:
     youtube_id: str
@@ -57,12 +168,17 @@ class PlannedMove:
 
 
 def _target_path(
-    target_root: Path, genre: str | None, artist: str, filename: str
+    target_root: Path,
+    genre: str | None,
+    artist: str,
+    filename: str,
+    clean_names: str | None = None,
 ) -> Path:
     dest = target_root
     if genre:
         dest = dest / sanitize_component(genre)
-    return dest / sanitize_component(artist) / filename
+    fname = clean_filename(filename, clean_names) if clean_names else filename
+    return dest / sanitize_component(artist) / fname
 
 
 def _resolve_collision(dest: Path, youtube_id: str, taken: set[str]) -> Path:
@@ -77,6 +193,7 @@ def _resolve_collision(dest: Path, youtube_id: str, taken: set[str]) -> Path:
 def build_plan(
     target_root: str | Path,
     db_path: str | Path = db.DEFAULT_DB_PATH,
+    clean_names: str | None = None,
 ) -> list[PlannedMove]:
     target_root = Path(target_root).expanduser()
     planned: list[PlannedMove] = []
@@ -96,7 +213,9 @@ def build_plan(
         for r in rows:
             to_path: str | None = None
             if r["action"] == "move" and r["artist"]:
-                dest = _target_path(target_root, r["genre"], r["artist"], r["filename"])
+                dest = _target_path(
+                    target_root, r["genre"], r["artist"], r["filename"], clean_names
+                )
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))
                 to_path = str(dest)

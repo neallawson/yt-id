@@ -214,6 +214,41 @@ that produced the moves:
 In short: **inline verification + rollback is the guarantee; `validate` is the
 after-the-fact audit.**
 
+### Filename cleaning (`plan --clean-names`)
+
+Source filenames often carry characters that trip other software. `plan` can
+tidy the *destination* filename while staying as close to the original as
+possible. It is **off by default** — omit the flag and names are preserved
+verbatim.
+
+```bash
+ytid plan --target "/Music Videos" --clean-names conservative
+ytid plan --target "/Music Videos" --clean-names moderate
+```
+
+Both levels share the same rules:
+
+- The **YouTube-ID token** (`[id]` or trailing `-id`) and the **file extension**
+  are preserved verbatim.
+- **Whitespace runs** collapse to a single `_`.
+- **Removed characters** collapse to nothing, except a single `-` seam is
+  inserted when removal would otherwise concatenate two kept characters
+  (`AC/DC` → `AC-DC`, but a trailing `What?` → `What`).
+- Repeated separators collapse; leading/trailing separators are trimmed.
+- OS-safety tail: trailing dots/spaces stripped, reserved names (`CON`, `NUL`,
+  …) prefixed with `_`, stem capped at 200 chars. Empty results fall back to the
+  YouTube ID (or `Unknown`). The transform is **idempotent**.
+
+Levels differ only in *which* characters are treated as bad:
+
+| Level          | Removes                                                        |
+|----------------|---------------------------------------------------------------|
+| `conservative` | Filesystem-illegal + control chars: `< > : " / \ \| ? *`      |
+| `moderate`     | The above **plus** shell-hostile chars: `' " \` & ; $ ( ) { } ! # @ ~ %` |
+
+Example (`moderate`): `Song (Live) & More [abcdefghijk].mp4` →
+`Song_Live_More_[abcdefghijk].mp4`.
+
 ### Path storage & relocation (planned)
 
 Today paths are stored **as given**: the DB records whatever `--source` you pass
