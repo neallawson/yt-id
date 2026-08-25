@@ -185,6 +185,16 @@ def test_clean_preserves_bracket_id_with_leading_underscore():
     )
 
 
+def test_clean_no_double_dash_when_seam_meets_dash_id():
+    # regression: removed ')' seam must not stack with the dash-suffix ID's dash
+    assert (
+        clean_filename(
+            "35mm _ Moon Tower (Live at The Nave)-r2fJKaX_FoE.mkv", "moderate"
+        )
+        == "35mm_Moon_Tower_Live_at_The_Nave-r2fJKaX_FoE.mkv"
+    )
+
+
 # --- plan integration: clean_names flows into to_path ----------------------
 
 
@@ -266,6 +276,19 @@ def test_enhance_preserves_id_with_separator_run():
             "1776 [EX_-1xbYx_E].webm", "Hope Of The States", "1776", "moderate"
         )
         == "Hope_Of_The_States_1776_[EX_-1xbYx_E].webm"
+    )
+
+
+def test_enhance_no_double_dash_when_seam_meets_dash_id():
+    # regression: the Far Caspian case from the manifest
+    assert (
+        enhance_filename(
+            "35mm _ Moon Tower (Live at The Nave)-r2fJKaX_FoE.mkv",
+            "Far Caspian",
+            "35mm / Moon Tower (Live at The Nave)",
+            "moderate",
+        )
+        == "Far_Caspian_35mm_Moon_Tower_Live_at_The_Nave-r2fJKaX_FoE.mkv"
     )
 
 

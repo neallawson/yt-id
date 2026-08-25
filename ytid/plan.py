@@ -94,6 +94,28 @@ def _split_id(stem: str) -> tuple[str, str]:
     return stem[: span[0]] + _ID_SENTINEL + stem[span[1] :], stem[span[0] : span[1]]
 
 
+def _splice_id(text: str, id_text: str) -> str:
+    """Substitute the ID sentinel back with the verbatim `id_text`.
+
+    Junction-aware: the dash-suffix ID form carries its own leading ``-``
+    separator, so if the scrubbed text already ends in a separator right before
+    the sentinel (e.g. a seam left by removing ``)``), the duplicate is dropped
+    to avoid ``--``/``__``. The same is applied symmetrically at the trailing
+    edge. Separators *inside* `id_text` are never touched.
+    """
+    if not id_text:
+        return text.replace(_ID_SENTINEL, "")
+    idx = text.find(_ID_SENTINEL)
+    if idx == -1:
+        return text
+    before, after = text[:idx], text[idx + 1 :]
+    if id_text[:1] in "-_" and before[-1:] in "-_":
+        before = before[:-1]
+    if id_text[-1:] in "-_" and after[:1] in "-_":
+        after = after[1:]
+    return before + id_text + after
+
+
 def _clean_stem(stem: str, moderate: bool) -> str:
     """Core stem scrubber shared by clean_filename and token normalization.
 
@@ -183,7 +205,7 @@ def clean_filename(name: str, level: str | None) -> str:
     stem = name[: len(name) - len(ext)] if ext else name
 
     proto, id_text = _split_id(stem)
-    cleaned = _clean_stem(proto, moderate)[:200].replace(_ID_SENTINEL, id_text)
+    cleaned = _splice_id(_clean_stem(proto, moderate)[:200], id_text)
 
     if not cleaned:
         cleaned = extract_youtube_id(name)[0] or "Unknown"
@@ -236,7 +258,7 @@ def enhance_filename(
     prefix = "_".join(parts)
     tail = proto.lstrip("_-")
     combined = f"{prefix}_{tail}" if tail else prefix
-    combined = combined.strip("_-")[:200].replace(_ID_SENTINEL, id_text)
+    combined = _splice_id(combined.strip("_-")[:200], id_text)
 
     if not combined:
         combined = extract_youtube_id(name)[0] or "Unknown"
