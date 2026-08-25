@@ -244,10 +244,15 @@ Levels differ only in *which* characters are treated as bad:
 | Level          | Removes                                                        |
 |----------------|---------------------------------------------------------------|
 | `conservative` | Filesystem-illegal + control chars: `< > : " / \ \| ? *`      |
-| `moderate`     | The above **plus** shell-hostile chars: `' " \` & ; $ ( ) { } ! # @ ~ %` |
+| `moderate`     | The above **plus** shell-hostile chars: `' " \` ; $ ( ) { } ! # @ ~ %` and commas (ASCII `,`, fullwidth `，`, ideographic `、`) |
+
+Under `moderate`, `&` is a special case: instead of being dropped it is
+rewritten to `_and_` to keep the meaning (so `A & B` and `A&B` both become
+`A_and_B`). Note this is a blunt substitution — `R&B` becomes `R_and_B`.
+`conservative` leaves a literal `&` untouched.
 
 Example (`moderate`): `Song (Live) & More [abcdefghijk].mp4` →
-`Song_Live_More_[abcdefghijk].mp4`.
+`Song_Live_and_More_[abcdefghijk].mp4`.
 
 ### Filename enhancing (`plan --enhance-names`)
 

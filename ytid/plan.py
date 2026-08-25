@@ -30,8 +30,10 @@ CLEAN_LEVELS = ("conservative", "moderate")
 # Characters that are illegal in filenames on common filesystems (reused from
 # the folder sanitizer): < > : " / \ | ? * and C0 control chars.
 # Additionally neutralized under the 'moderate' level: shell-hostile but
-# otherwise-legal characters that routinely trip scripts and other tools.
-_MODERATE_EXTRA = set("'\"`&;$(){}!#@~%")
+# otherwise-legal characters that routinely trip scripts and other tools, plus
+# commas (ASCII, fullwidth, and ideographic).
+# ('&' is handled separately: it is rewritten to '_and_' to preserve meaning.)
+_MODERATE_EXTRA = set("'\"`;$(){}!#@~%,\uff0c\u3001")
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {
@@ -39,6 +41,11 @@ _RESERVED = {
     *(f"com{i}" for i in range(1, 10)),
     *(f"lpt{i}" for i in range(1, 10)),
 }
+
+# Private-use placeholder that stands in for the verbatim YouTube-ID token while
+# the rest of the stem is scrubbed. It is treated as ordinary content (not a
+# separator), so the separator-collapse passes never touch the real ID.
+_ID_SENTINEL = "\uE000"
 
 
 def sanitize_component(name: str, fallback: str = "Unknown") -> str:
@@ -73,36 +80,47 @@ def _is_bad(ch: str, moderate: bool) -> bool:
     return moderate and ch in _MODERATE_EXTRA
 
 
-def _clean_stem(stem: str, span: tuple[int, int] | None, moderate: bool) -> str:
+def _split_id(stem: str) -> tuple[str, str]:
+    """Replace the YouTube-ID token in `stem` with a sentinel.
+
+    Returns `(stem_with_sentinel, id_text)`. The sentinel is treated as ordinary
+    content by the scrubber, so separator-collapse never mangles IDs that contain
+    ``_``/``-`` runs (e.g. ``EX_-1xbYx_E``). Splice the verbatim `id_text` back in
+    as the final step. When no ID is present, returns `(stem, "")`.
+    """
+    span = _id_span(stem)
+    if span is None:
+        return stem, ""
+    return stem[: span[0]] + _ID_SENTINEL + stem[span[1] :], stem[span[0] : span[1]]
+
+
+def _clean_stem(stem: str, moderate: bool) -> str:
     """Core stem scrubber shared by clean_filename and token normalization.
 
     Whitespace runs collapse to a single underscore; runs of removed characters
     collapse to nothing, except a single dash seam is inserted when removal would
-    otherwise concatenate two kept characters. Characters inside `span` (the
-    protected YouTube-ID token) are always emitted verbatim.
-    """
+    otherwise concatenate two kept characters. The ID sentinel (if present) is
+    treated as ordinary content and passes through untouched.
 
-    def in_span(idx: int) -> bool:
-        return span is not None and span[0] <= idx < span[1]
+    Under 'moderate', '&' is rewritten to ' and ' (surrounding whitespace then
+    collapses to '_and_') so the meaning survives instead of being dropped.
+    """
+    if moderate:
+        stem = stem.replace("&", " and ")
 
     tokens: list[tuple[str, str]] = []
     i, n = 0, len(stem)
     while i < n:
-        if in_span(i):
-            for k in range(i, span[1]):
-                tokens.append(("c", stem[k]))
-            i = span[1]
-            continue
         ch = stem[i]
         if ch.isspace():
             j = i + 1
-            while j < n and not in_span(j) and stem[j].isspace():
+            while j < n and stem[j].isspace():
                 j += 1
             tokens.append(("sp", ""))
             i = j
         elif _is_bad(ch, moderate):
             j = i + 1
-            while j < n and not in_span(j) and _is_bad(stem[j], moderate):
+            while j < n and _is_bad(stem[j], moderate):
                 j += 1
             tokens.append(("bad", ""))
             i = j
@@ -138,7 +156,7 @@ def _squash(s: str) -> str:
 
 def _norm_token(text: str, moderate: bool) -> str:
     """Normalize a free-form artist/title into an OS-safe filename fragment."""
-    return _clean_stem(text.strip(), None, moderate)
+    return _clean_stem(text.strip(), moderate)
 
 
 def clean_filename(name: str, level: str | None) -> str:
@@ -164,13 +182,14 @@ def clean_filename(name: str, level: str | None) -> str:
     ext = Path(name).suffix
     stem = name[: len(name) - len(ext)] if ext else name
 
-    cleaned = _clean_stem(stem, _id_span(stem), moderate)
+    proto, id_text = _split_id(stem)
+    cleaned = _clean_stem(proto, moderate)[:200].replace(_ID_SENTINEL, id_text)
 
     if not cleaned:
         cleaned = extract_youtube_id(name)[0] or "Unknown"
     if cleaned.lower() in _RESERVED:
         cleaned = "_" + cleaned
-    return cleaned[:200] + ext
+    return cleaned + ext
 
 
 def enhance_filename(
@@ -188,12 +207,18 @@ def enhance_filename(
     per `level` (or left as-is when `level` is None), while the injected
     fragments are always sanitized.
     """
-    base = clean_filename(name, level) if level else name
-    ext = Path(base).suffix
-    stem = base[: len(base) - len(ext)] if ext else base
-
     moderate = level == "moderate"
-    seen = _squash(stem)
+
+    ext = Path(name).suffix
+    stem = name[: len(name) - len(ext)] if ext else name
+
+    # Work on the sentinel form so the ID survives scrubbing and collapsing.
+    proto, id_text = _split_id(stem)
+    proto = _clean_stem(proto, moderate) if level else proto
+
+    # Duplication guard compares against the tail with the ID excluded (the
+    # sentinel squashes away), so an ID never falsely matches an artist/title.
+    seen = _squash(proto)
     parts: list[str] = []
     for token in (artist, title):
         if not token:
@@ -206,17 +231,18 @@ def enhance_filename(
         seen += squashed  # guard against artist == title duplication
 
     if not parts:
-        return base
+        return clean_filename(name, level) if level else name
 
     prefix = "_".join(parts)
-    combined = f"{prefix}_{stem}" if stem else prefix
-    combined = re.sub(r"_+", "_", combined).strip("_-")
+    tail = proto.lstrip("_-")
+    combined = f"{prefix}_{tail}" if tail else prefix
+    combined = combined.strip("_-")[:200].replace(_ID_SENTINEL, id_text)
 
     if not combined:
         combined = extract_youtube_id(name)[0] or "Unknown"
     if combined.lower() in _RESERVED:
         combined = "_" + combined
-    return combined[:200] + ext
+    return combined + ext
 
 
 @dataclass

@@ -112,12 +112,41 @@ def test_clean_empty_result_falls_back_to_unknown():
 
 def test_clean_moderate_strips_shell_hostile_chars():
     assert (
-        clean_filename("Song (Live) & More.mp4", "moderate") == "Song_Live_More.mp4"
+        clean_filename("Song (Live) & More.mp4", "moderate")
+        == "Song_Live_and_More.mp4"
     )
 
 
-def test_clean_moderate_ampersand_seam_without_spaces():
-    assert clean_filename("A&B.mp4", "moderate") == "A-B.mp4"
+def test_clean_moderate_ampersand_becomes_and():
+    assert clean_filename("A&B.mp4", "moderate") == "A_and_B.mp4"
+
+
+def test_clean_moderate_ampersand_with_spaces_becomes_and():
+    assert clean_filename("Salt & Pepper.mp4", "moderate") == "Salt_and_Pepper.mp4"
+
+
+def test_clean_conservative_keeps_literal_ampersand():
+    assert clean_filename("A&B.mp4", "conservative") == "A&B.mp4"
+
+
+def test_clean_moderate_drops_comma_before_space():
+    assert (
+        clean_filename("Flowers De Moon, Olivia Price.mp4", "moderate")
+        == "Flowers_De_Moon_Olivia_Price.mp4"
+    )
+
+
+def test_clean_moderate_comma_seam_without_space():
+    assert clean_filename("A,B.mp4", "moderate") == "A-B.mp4"
+
+
+def test_clean_moderate_removes_fullwidth_and_ideographic_commas():
+    assert clean_filename("A\uff0cB.mp4", "moderate") == "A-B.mp4"
+    assert clean_filename("A\u3001B.mp4", "moderate") == "A-B.mp4"
+
+
+def test_clean_conservative_keeps_literal_comma():
+    assert clean_filename("A,B.mp4", "conservative") == "A,B.mp4"
 
 
 # --- clean_filename: ID + extension preservation ---------------------------
@@ -140,6 +169,20 @@ def test_clean_preserves_dash_suffix_id_token():
 def test_clean_is_idempotent():
     once = clean_filename("Song (Live) & More [abcdefghijk].mkv", "moderate")
     assert clean_filename(once, "moderate") == once
+
+
+def test_clean_preserves_id_with_separator_run():
+    # regression: id containing "_-" must not be collapsed to "_"
+    assert (
+        clean_filename("1776 [EX_-1xbYx_E].webm", "moderate")
+        == "1776_[EX_-1xbYx_E].webm"
+    )
+
+
+def test_clean_preserves_bracket_id_with_leading_underscore():
+    assert (
+        clean_filename("9-9 [_yN5ZboIT-o].mp4", "moderate") == "9-9_[_yN5ZboIT-o].mp4"
+    )
 
 
 # --- plan integration: clean_names flows into to_path ----------------------
@@ -207,13 +250,23 @@ def test_enhance_missing_artist_uses_title_only():
 def test_enhance_combined_with_moderate_clean():
     assert (
         enhance_filename("A&B [dQw4w9WgXcQ].mp4", "AC/DC", "Hells & Bells", "moderate")
-        == "AC-DC_Hells_Bells_A-B_[dQw4w9WgXcQ].mp4"
+        == "AC-DC_Hells_and_Bells_A_and_B_[dQw4w9WgXcQ].mp4"
     )
 
 
 def test_enhance_is_idempotent():
     once = enhance_filename("[dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
     assert enhance_filename(once, "Nazz", "Open My Eyes", None) == once
+
+
+def test_enhance_preserves_id_with_separator_run():
+    # regression: id "_-" run survives enhance + moderate clean
+    assert (
+        enhance_filename(
+            "1776 [EX_-1xbYx_E].webm", "Hope Of The States", "1776", "moderate"
+        )
+        == "Hope_Of_The_States_1776_[EX_-1xbYx_E].webm"
+    )
 
 
 # --- plan integration: enhance_names flows into to_path --------------------
