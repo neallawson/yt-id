@@ -1,0 +1,54 @@
+# Coarse genre folders you actually want on disk.
+# The classifier will only ever place files into one of these buckets.
+# "other" is the catch-all / review destination.
+#
+# This is the packaged default. To customize, create your own genre_map.yaml
+# in ./config, in $XDG_CONFIG_HOME/ytid (or ~/.config/ytid), or pass --config DIR.
+buckets:
+  - rock
+  - pop
+  - jazz
+  - blues
+  - funk
+  - soul
+  - metal
+  - folk
+  - country
+  - electronic
+  - classical
+  - reggae
+  - hiphop
+  - other
+
+# Normalization map: fine-grained genre tags (from yt-dlp fields in v1,
+# MusicBrainz in v2) -> coarse bucket above. Keys are lowercased before lookup.
+# Anything not found here falls through to "other" and is sent to review.
+normalize:
+  classic rock: rock
+  hard rock: rock
+  progressive rock: rock
+  psychedelic rock: rock
+  album rock: rock
+  soft rock: rock
+  indie rock: rock
+  alternative rock: rock
+  punk: rock
+  punk rock: rock
+  jazz fusion: jazz
+  bebop: jazz
+  swing: jazz
+  smooth jazz: jazz
+  baroque: classical
+  romantic: classical
+  romantic era: classical
+  opera: classical
+  rhythm and blues: soul
+  r&b: soul
+  motown: soul
+  hip hop: hiphop
+  hip-hop: hiphop
+  rap: hiphop
+  edm: electronic
+  house: electronic
+  techno: electronic
+  synthpop: electronic

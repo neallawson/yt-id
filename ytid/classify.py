@@ -198,7 +198,7 @@ def list_decisions(
 
 def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
-    config_dir: str | Path = "config",
+    config_dir: str | Path | None = None,
     allow_missing_genre: bool = False,
 ) -> dict[str, int]:
     """Classify every known video and upsert into the decisions table.

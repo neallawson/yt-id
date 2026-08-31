@@ -223,7 +223,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.set_defaults(func=_cmd_fetch)
 
     p_classify = sub.add_parser("classify", help="decide artist/genre/action")
-    p_classify.add_argument("--config", default="config", help="config directory")
+    p_classify.add_argument(
+        "--config", default=None,
+        help="config directory (overrides ./config, the user config dir, and "
+             "the packaged defaults, resolved per file)",
+    )
     p_classify.add_argument(
         "--allow-missing-genre", dest="allow_missing_genre", action="store_true",
         help="move confident artist-only files into /Artist (no genre folder)",

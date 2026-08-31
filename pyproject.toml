@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,25 @@ name = "ytid"
 version = "0.1.0"
 description = "Identify artist/genre for a folder of YouTube-sourced music videos and organize them into /genre/Artist folders."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
+authors = [
+    { name = "Neal Lawson", email = "captainneal@gmail.com" },
+]
+keywords = ["youtube", "yt-dlp", "music", "metadata", "organizer", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Utilities",
+]
 dependencies = [
     "PyYAML>=6.0",
 ]
@@ -15,13 +33,22 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "build>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jneallawson/yt-id"
+Repository = "https://github.com/jneallawson/yt-id"
+Issues = "https://github.com/jneallawson/yt-id/issues"
 
 [project.scripts]
 ytid = "ytid.cli:main"
 
 [tool.setuptools]
-packages = ["ytid"]
+packages = ["ytid", "ytid.data"]
+
+[tool.setuptools.package-data]
+"ytid.data" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

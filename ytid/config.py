@@ -4,17 +4,30 @@ Two files drive classification:
 
 - genre_map.yaml: the coarse folder buckets and a fine->coarse normalize map.
 - overrides.yaml: ground-truth artist->genre and per-video decisions.
+
+Each file is resolved independently across a search path so the tool works both
+from the source tree and once installed anywhere. Precedence (first match wins,
+per file), with packaged defaults as the always-present fallback:
+
+    1. an explicit --config directory (the ``config_dir`` argument)
+    2. ``./config`` in the current working directory (dev convenience)
+    3. the user config dir ($XDG_CONFIG_HOME/ytid, else ~/.config/ytid)
+    4. the defaults bundled inside the package (ytid/data)
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-DEFAULT_CONFIG_DIR = Path("config")
+GENRE_MAP_FILE = "genre_map.yaml"
+OVERRIDES_FILE = "overrides.yaml"
+_PACKAGE_DATA = "ytid.data"
 
 
 @dataclass
@@ -58,20 +71,44 @@ class Config:
     overrides: Overrides
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+def _parse_yaml(fh: Any, source: str) -> dict[str, Any]:
+    data = yaml.safe_load(fh) or {}
     if not isinstance(data, dict):
-        raise ValueError(f"{path} must contain a mapping at the top level")
+        raise ValueError(f"{source} must contain a mapping at the top level")
     return data
 
 
-def load_config(config_dir: str | Path = DEFAULT_CONFIG_DIR) -> Config:
-    config_dir = Path(config_dir)
+def _user_config_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "ytid"
+    return Path.home() / ".config" / "ytid"
 
-    gm_raw = _load_yaml(config_dir / "genre_map.yaml")
+
+def _search_dirs(config_dir: str | Path | None) -> list[Path]:
+    dirs: list[Path] = []
+    if config_dir is not None:
+        dirs.append(Path(config_dir))
+    dirs.append(Path.cwd() / "config")
+    dirs.append(_user_config_dir())
+    return dirs
+
+
+def _read_config_file(filename: str, config_dir: str | Path | None) -> dict[str, Any]:
+    """Return the first matching config file's data, else the packaged default."""
+    for directory in _search_dirs(config_dir):
+        path = directory / filename
+        if path.is_file():
+            with path.open("r", encoding="utf-8") as fh:
+                return _parse_yaml(fh, str(path))
+
+    resource = resources.files(_PACKAGE_DATA).joinpath(filename)
+    with resource.open("r", encoding="utf-8") as fh:
+        return _parse_yaml(fh, f"{_PACKAGE_DATA}/{filename}")
+
+
+def load_config(config_dir: str | Path | None = None) -> Config:
+    gm_raw = _read_config_file(GENRE_MAP_FILE, config_dir)
     buckets = gm_raw.get("buckets") or ["other"]
     if "other" not in buckets:
         buckets.append("other")
@@ -81,7 +118,7 @@ def load_config(config_dir: str | Path = DEFAULT_CONFIG_DIR) -> Config:
     }
     genre_map = GenreMap(buckets=[str(b).strip().lower() for b in buckets], normalize=normalize)
 
-    ov_raw = _load_yaml(config_dir / "overrides.yaml")
+    ov_raw = _read_config_file(OVERRIDES_FILE, config_dir)
     artists = {str(k): str(v).strip().lower() for k, v in (ov_raw.get("artists") or {}).items()}
     videos: dict[str, VideoOverride] = {}
     for vid, spec in (ov_raw.get("videos") or {}).items():

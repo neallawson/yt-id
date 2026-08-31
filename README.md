@@ -9,6 +9,10 @@ hint only. Metadata is resolved from YouTube via `yt-dlp`, cached durably in
 SQLite, and turned into a reviewed move manifest before anything is touched on
 disk.
 
+> **New here?** See the [Getting Started guide](docs/GETTING_STARTED.md) for
+> installation, how the `ytid` command is invoked, where files live, and a
+> full end-to-end walkthrough.
+
 ## Design
 
 The pipeline is split into independently re-runnable stages so the slow,
