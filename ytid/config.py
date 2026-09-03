@@ -27,6 +27,7 @@ import yaml
 
 GENRE_MAP_FILE = "genre_map.yaml"
 OVERRIDES_FILE = "overrides.yaml"
+CONFIG_FILES = (GENRE_MAP_FILE, OVERRIDES_FILE)
 _PACKAGE_DATA = "ytid.data"
 
 
@@ -105,6 +106,52 @@ def _read_config_file(filename: str, config_dir: str | Path | None) -> dict[str,
     resource = resources.files(_PACKAGE_DATA).joinpath(filename)
     with resource.open("r", encoding="utf-8") as fh:
         return _parse_yaml(fh, f"{_PACKAGE_DATA}/{filename}")
+
+
+def packaged_path(filename: str) -> str:
+    """Return a display path for a packaged default config file."""
+    return str(resources.files(_PACKAGE_DATA).joinpath(filename))
+
+
+@dataclass
+class ConfigResolution:
+    """Where a single config file is resolved from, and the paths considered."""
+
+    filename: str
+    candidates: list[tuple[Path, bool]]  # ordered (path, exists) for each search dir
+    packaged: str                        # display path of the packaged default
+    in_effect: str                       # the path actually used
+    from_packaged: bool                  # True when the packaged default is used
+
+
+def resolve_sources(config_dir: str | Path | None = None) -> list[ConfigResolution]:
+    """Report, per config file, which source is in effect and what was searched.
+
+    Mirrors the resolution used by load_config so `ytid config path` can show the
+    user exactly which files are active without loading/parsing them.
+    """
+    results: list[ConfigResolution] = []
+    for filename in CONFIG_FILES:
+        candidates: list[tuple[Path, bool]] = []
+        in_effect: str | None = None
+        for directory in _search_dirs(config_dir):
+            path = directory / filename
+            exists = path.is_file()
+            candidates.append((path, exists))
+            if in_effect is None and exists:
+                in_effect = str(path)
+        packaged = packaged_path(filename)
+        from_packaged = in_effect is None
+        results.append(
+            ConfigResolution(
+                filename=filename,
+                candidates=candidates,
+                packaged=packaged,
+                in_effect=packaged if from_packaged else in_effect,
+                from_packaged=from_packaged,
+            )
+        )
+    return results
 
 
 def load_config(config_dir: str | Path | None = None) -> Config:

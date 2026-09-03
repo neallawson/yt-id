@@ -90,7 +90,14 @@ the first match winning (per file):
 4. the **defaults bundled inside the installed package** (always present)
 
 This means the tool works out of the box (packaged defaults), while letting you
-override settings without touching the installation.
+override settings without touching the installation. To see exactly which files
+are active on your system (and everything that was searched), run:
+
+```bash
+ytid config path              # add --config DIR to preview a specific directory
+```
+The `*` marks the file in effect for each of `genre_map.yaml` and
+`overrides.yaml`.
 
 - **`genre_map.yaml`** — the coarse genre folders (`buckets`) you want on disk,
   plus a `normalize` map from fine-grained genre tags to those buckets.

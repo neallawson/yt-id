@@ -17,6 +17,7 @@ import sys
 
 from . import apply as apply_mod
 from . import classify as classify_mod
+from . import config as config_mod
 from . import db
 from . import fetch as fetch_mod
 from . import plan as plan_mod
@@ -116,6 +117,24 @@ def _cmd_classify(args) -> int:
         f"classify: total={counts['total']} move={counts.get('move', 0)} "
         f"review={counts.get('review', 0)} skip={counts.get('skip', 0)}"
     )
+    return 0
+
+
+def _cmd_config(args) -> int:
+    sources = config_mod.resolve_sources(args.config)
+    print(
+        "config: search order per file (first existing wins; "
+        "packaged default is the fallback)"
+    )
+    for src in sources:
+        origin = "packaged default" if src.from_packaged else "in effect"
+        print(f"\n{src.filename} -> {src.in_effect}  [{origin}]")
+        for path, exists in src.candidates:
+            active = not src.from_packaged and str(path) == src.in_effect
+            mark = "*" if active else ("x" if exists else " ")
+            print(f"    [{mark}] {path}")
+        pkg_mark = "*" if src.from_packaged else " "
+        print(f"    [{pkg_mark}] {src.packaged}  (packaged default)")
     return 0
 
 
@@ -233,6 +252,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="move confident artist-only files into /Artist (no genre folder)",
     )
     p_classify.set_defaults(func=_cmd_classify)
+
+    p_config = sub.add_parser(
+        "config", help="show which config files are in effect"
+    )
+    p_config.add_argument(
+        "action", nargs="?", choices=["path"], default="path",
+        help="what to show (default: path)",
+    )
+    p_config.add_argument(
+        "--config", default=None,
+        help="config directory to resolve against (same precedence as classify)",
+    )
+    p_config.set_defaults(func=_cmd_config)
 
     p_review = sub.add_parser(
         "review", help="list the manual-review bucket (classify decisions)"

@@ -26,6 +26,7 @@ network-bound work is isolated from the fast, local work:
 | `plan`    | Build a dry-run move manifest (CSV/JSON)            | fast, local  |
 | `apply`   | Execute the manifest; `--undo` reverses it          | fast, local  |
 | `validate`| Verify the manifest was executed correctly (planned)| fast, local  |
+| `config`  | Show which config files are in effect (`config path`)| fast, local  |
 
 State lives in SQLite (`ytid.db` by default): `videos`, `artists`,
 `decisions`, and `moves` tables. Nothing is re-fetched or re-guessed
@@ -110,6 +111,30 @@ heuristic parses stay in `review`.
 
 ```bash
 ytid classify --allow-missing-genre
+```
+
+### Configuration
+
+Two YAML files drive classification: `genre_map.yaml` (the coarse genre folders
+and a fine→coarse `normalize` map) and `overrides.yaml` (your ground-truth
+artist→genre mappings and per-video decisions). Sensible defaults ship **inside
+the package**, so the tool works out of the box after install.
+
+Each file is resolved **independently**, first match wins:
+
+1. an explicit `--config DIR` (on `classify`)
+2. `./config` in the current directory (handy while developing)
+3. your user config dir: `$XDG_CONFIG_HOME/ytid`, else `~/.config/ytid`
+4. the packaged defaults bundled in the install (always present)
+
+To customize without touching the install, drop your own `genre_map.yaml` /
+`overrides.yaml` into `~/.config/ytid/`. To see exactly which files are active
+(and everything that was searched), use the `config` command — a `*` marks the
+file in effect:
+
+```bash
+ytid config path                 # resolve against the default search path
+ytid config path --config ./cfg  # preview a specific directory
 ```
 
 ### Validated, transactional `apply` (implemented)
@@ -348,7 +373,8 @@ ytid scan --source "/path/to/videos"
 # 2. Resolve metadata (slow; safe to Ctrl-C and resume)
 ytid fetch --sleep 2 --jitter 1
 
-# 3. Classify using structured fields + config/overrides.yaml
+# 3. Classify using structured fields + overrides.yaml
+#    (see which config files are active with `ytid config path`)
 ytid classify
 
 # 4. Produce a dry-run manifest (writes CSV + JSON, moves nothing)

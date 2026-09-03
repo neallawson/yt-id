@@ -2,7 +2,8 @@ import textwrap
 
 import pytest
 
-from ytid.config import load_config
+from ytid.cli import main
+from ytid.config import CONFIG_FILES, load_config, resolve_sources
 
 
 @pytest.fixture(autouse=True)
@@ -94,3 +95,48 @@ def test_invalid_yaml_top_level_raises(tmp_path):
     _write(cfgdir / "genre_map.yaml", "- just\n- a\n- list\n")
     with pytest.raises(ValueError, match="mapping at the top level"):
         load_config(cfgdir)
+
+
+# --- resolve_sources / `ytid config path` ----------------------------------
+
+
+def test_resolve_sources_all_packaged_when_nothing_present():
+    sources = resolve_sources()
+    assert [s.filename for s in sources] == list(CONFIG_FILES)
+    for src in sources:
+        assert src.from_packaged is True
+        assert src.in_effect == src.packaged
+        # every candidate dir was searched and none existed
+        assert src.candidates
+        assert all(not exists for _, exists in src.candidates)
+
+
+def test_resolve_sources_reports_active_file(tmp_path):
+    _write(tmp_path / "config" / "genre_map.yaml", "buckets: [cwd]\n")
+    sources = {s.filename: s for s in resolve_sources()}
+    gm = sources["genre_map.yaml"]
+    assert gm.from_packaged is False
+    assert gm.in_effect == str(tmp_path / "config" / "genre_map.yaml")
+    # overrides still falls back to packaged
+    assert sources["overrides.yaml"].from_packaged is True
+
+
+def test_resolve_sources_explicit_dir_is_first_candidate(tmp_path):
+    explicit = tmp_path / "explicit"
+    sources = resolve_sources(explicit)
+    first_paths = [s.candidates[0][0] for s in sources]
+    assert all(p == explicit / s.filename for p, s in zip(first_paths, sources))
+
+
+def test_config_path_command_runs(capsys):
+    rc = main(["config", "path"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "genre_map.yaml" in out
+    assert "overrides.yaml" in out
+    assert "packaged default" in out
+
+
+def test_config_command_defaults_to_path(capsys):
+    assert main(["config"]) == 0
+    assert "genre_map.yaml" in capsys.readouterr().out
