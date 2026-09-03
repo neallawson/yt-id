@@ -53,7 +53,7 @@ Pick whichever fits how often you use the tool:
 | **Dev / editable venv** | `python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"` | Edits to the source take effect immediately. `ytid` works while the venv is active. |
 | **No install** | `python -m ytid.cli scan --source ...` | Run from the repo root. |
 | **Global, isolated (recommended)** | `pipx install /path/to/yt-id` | Puts a `ytid` symlink on your PATH (`~/.local/bin`) in its own env. Add `-e` for editable. |
-| **From Git** | `pipx install git+https://…/yt-id.git` | No local checkout needed. |
+| **From Git** | `pipx install git+https://github.com/jneallawson/yt-id.git` | No local checkout needed. See §7. |
 
 If you already have a `.venv` with an editable install, the launcher lives at
 `.venv/bin/ytid`. To use `ytid` without activating the venv, add that `bin`
@@ -208,3 +208,80 @@ ytid plan     --target "/Music Videos" --clean-names moderate --enhance-names
 ytid apply    --manifest manifest.json          # dry-run
 ytid apply    --manifest manifest.json --apply  # go
 ```
+
+---
+
+## 7. Sharing & publishing your own copy
+
+There are two levels here. **Most people only need Path A.**
+
+### Path A — Install straight from GitHub (recommended, no publishing)
+
+Because the repo is public and `pyproject.toml` is complete, anyone (including
+future-you on a new machine) can install `ytid` with a single command — no
+account, no build step, nothing to upload:
+
+```bash
+pipx install git+https://github.com/jneallawson/yt-id.git
+```
+
+- **Updating to the latest commit:**
+  ```bash
+  pipx install --force git+https://github.com/jneallawson/yt-id.git
+  ```
+- **Pinning to a specific tag or commit** (reproducible):
+  ```bash
+  pipx install "git+https://github.com/jneallawson/yt-id.git@v0.1.0"
+  ```
+- Remember `yt-dlp` is still a separate prerequisite (see §1).
+
+That's the whole story for Path A. Cutting a GitHub "release" is optional — it
+just creates a downloadable tag people can pin to.
+
+### Path B — Publish to PyPI (optional, enables `pip install ytid`)
+
+Do this only when you want the short, discoverable command `pip install ytid` /
+`pipx install ytid` to work for everyone. It adds a free account, an API token,
+and a build+upload step per release.
+
+**One-time setup**
+
+- Create accounts on [PyPI](https://pypi.org) and, for practice,
+  [TestPyPI](https://test.pypi.org).
+- Generate an API token on each and store it (e.g. in `~/.pypirc`). Use the
+  token as the password with username `__token__`; never your account password.
+- The distribution name `ytid` must be unused on PyPI (check the URL
+  `https://pypi.org/project/ytid/`). Pick another `name` in `pyproject.toml` if
+  it's taken.
+
+**Build the artifacts** (the `dev` extra installs `build` and `twine`; get them
+with `pip install -e ".[dev]"`):
+
+```bash
+rm -rf dist/ build/ *.egg-info          # start clean
+python -m build                         # writes dist/ytid-<ver>.tar.gz + .whl
+python -m twine check dist/*            # validate metadata / README rendering
+```
+
+- `dist/*.tar.gz` is the **sdist** (source), `dist/*.whl` is the **wheel**
+  (pre-built). Both carry the packaged `ytid/data/*.yaml` and `LICENSE`.
+
+**Rehearse on TestPyPI, then go live on PyPI:**
+
+```bash
+# dry run against the sandbox index
+python -m twine upload --repository testpypi dist/*
+pipx install --index-url https://test.pypi.org/simple/ ytid   # verify it installs
+
+# the real thing
+python -m twine upload dist/*
+```
+
+**Release checklist (every time)**
+
+1. Bump `version` in `pyproject.toml` — PyPI refuses to overwrite an existing
+   version.
+2. `rm -rf dist/ build/ *.egg-info` and rebuild.
+3. `python -m twine check dist/*`.
+4. Upload (TestPyPI first if unsure).
+5. Optionally tag the release in git: `git tag v0.1.0 && git push --tags`.
