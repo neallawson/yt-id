@@ -1,10 +1,10 @@
 """Command-line entry point wiring the five pipeline stages together.
 
-    ytid scan     --source DIR
-    ytid fetch    [--sleep S --jitter J --limit N --retry-errors ...]
-    ytid classify
-    ytid plan     --target DIR [--out PREFIX]
-    ytid apply    --manifest FILE [--undo] [--apply]
+    yt-id scan     --source DIR
+    yt-id fetch    [--sleep S --jitter J --limit N --retry-errors ...]
+    yt-id classify
+    yt-id plan     --target DIR [--out PREFIX]
+    yt-id apply    --manifest FILE [--undo] [--apply]
 
 Everything defaults to safe/dry-run behavior; `apply` requires an explicit
 --apply flag to actually move files.
@@ -38,7 +38,7 @@ def _cmd_scan(args) -> int:
     )
     need = sum(tally.get(s, 0) for s in resolve_mod.NEEDS_ATTENTION)
     if need:
-        print(f"scan: {need} file(s) need manual attention -> run `ytid unresolved`")
+        print(f"scan: {need} file(s) need manual attention -> run `yt-id unresolved`")
     return 0
 
 
@@ -199,7 +199,7 @@ def _cmd_apply(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ytid", description=__doc__)
+    parser = argparse.ArgumentParser(prog="yt-id", description=__doc__)
     parser.add_argument("--db", default=db.DEFAULT_DB_PATH, help="SQLite DB path")
     sub = parser.add_subparsers(dest="command", required=True)
 

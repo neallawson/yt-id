@@ -127,7 +127,7 @@ class ConfigResolution:
 def resolve_sources(config_dir: str | Path | None = None) -> list[ConfigResolution]:
     """Report, per config file, which source is in effect and what was searched.
 
-    Mirrors the resolution used by load_config so `ytid config path` can show the
+    Mirrors the resolution used by load_config so `yt-id config path` can show the
     user exactly which files are active without loading/parsing them.
     """
     results: list[ConfigResolution] = []

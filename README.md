@@ -1,4 +1,4 @@
-# ytid
+# yt-id
 
 Identify the artist and genre for a folder of YouTube-sourced music videos and
 organize them into a `/<genre>/<Artist>/` tree.
@@ -10,7 +10,7 @@ SQLite, and turned into a reviewed move manifest before anything is touched on
 disk.
 
 > **New here?** See the [Getting Started guide](docs/GETTING_STARTED.md) for
-> installation, how the `ytid` command is invoked, where files live, and a
+> installation, how the `yt-id` command is invoked, where files live, and a
 > full end-to-end walkthrough.
 
 ## Design
@@ -57,20 +57,20 @@ Bracket matches are high-confidence; dash matches are recorded with
 
 ```bash
 # List files needing attention (unresolved + duplicate)
-ytid unresolved
+yt-id unresolved
 
 # Also audit the lower-confidence dash-suffix matches
-ytid unresolved --include-dash
+yt-id unresolved --include-dash
 
 # List everything, regardless of status
-ytid unresolved --all
+yt-id unresolved --all
 
 # Manually resolve by row id or exact path
-ytid resolve --id 42 --youtube-id dQw4w9WgXcQ
-ytid resolve --path "/videos/A Place With No Id.mkv" --youtube-id dQw4w9WgXcQ
+yt-id resolve --id 42 --youtube-id dQw4w9WgXcQ
+yt-id resolve --path "/videos/A Place With No Id.mkv" --youtube-id dQw4w9WgXcQ
 
 # Track but never process a file
-ytid resolve --id 42 --ignore
+yt-id resolve --id 42 --ignore
 ```
 
 Manual resolutions (`id_source = 'manual'`) and `ignored` rows are preserved
@@ -89,12 +89,12 @@ Like the ID worklist, the review bucket is just a query:
 
 ```bash
 # List everything needing manual handling (action = 'review')
-ytid review
+yt-id review
 
 # List a specific bucket, or everything
-ytid review --action move
-ytid review --action skip
-ytid review --action all
+yt-id review --action move
+yt-id review --action skip
+yt-id review --action all
 ```
 
 Each entry shows the ID, decision, confidence, fetch status, derived artist,
@@ -110,7 +110,7 @@ unchanged, so only reliably-identified artists are promoted; low-confidence
 heuristic parses stay in `review`.
 
 ```bash
-ytid classify --allow-missing-genre
+yt-id classify --allow-missing-genre
 ```
 
 ### Configuration
@@ -133,8 +133,8 @@ To customize without touching the install, drop your own `genre_map.yaml` /
 file in effect:
 
 ```bash
-ytid config path                 # resolve against the default search path
-ytid config path --config ./cfg  # preview a specific directory
+yt-id config path                 # resolve against the default search path
+yt-id config path --config ./cfg  # preview a specific directory
 ```
 
 ### Validated, transactional `apply` (implemented)
@@ -251,8 +251,8 @@ possible. It is **off by default** — omit the flag and names are preserved
 verbatim.
 
 ```bash
-ytid plan --target "/Music Videos" --clean-names conservative
-ytid plan --target "/Music Videos" --clean-names moderate
+yt-id plan --target "/Music Videos" --clean-names conservative
+yt-id plan --target "/Music Videos" --clean-names moderate
 ```
 
 Both levels share the same rules:
@@ -290,8 +290,8 @@ YouTube ID. Since `classify` has already resolved the **artist** and **title**,
 `plan --enhance-names` can fold them back into the destination filename:
 
 ```bash
-ytid plan --target "/Music Videos" --enhance-names
-ytid plan --target "/Music Videos" --enhance-names --clean-names moderate
+yt-id plan --target "/Music Videos" --enhance-names
+yt-id plan --target "/Music Videos" --enhance-names --clean-names moderate
 ```
 
 Shape produced:
@@ -333,12 +333,12 @@ relative/anchored paths would only help while a DB is still *mid-pipeline*
 (scanned but not yet applied), which is the lower-value window. So it is
 intentionally postponed.
 
-**Planned: `ytid relink`.** For the mid-pipeline case (e.g. you move the source
+**Planned: `yt-id relink`.** For the mid-pipeline case (e.g. you move the source
 tree before applying), a future command will re-point stored paths in bulk:
 
 ```bash
 # planned, not yet implemented
-ytid relink --from /old/source/root --to /new/source/root
+yt-id relink --from /old/source/root --to /new/source/root
 ```
 
 This would update stored paths against recorded source/target roots, so an
@@ -368,24 +368,24 @@ pip install -e .
 
 ```bash
 # 1. Index the source folder (safe, local)
-ytid scan --source "/path/to/videos"
+yt-id scan --source "/path/to/videos"
 
 # 2. Resolve metadata (slow; safe to Ctrl-C and resume)
-ytid fetch --sleep 2 --jitter 1
+yt-id fetch --sleep 2 --jitter 1
 
 # 3. Classify using structured fields + overrides.yaml
-#    (see which config files are active with `ytid config path`)
-ytid classify
+#    (see which config files are active with `yt-id config path`)
+yt-id classify
 
 # 4. Produce a dry-run manifest (writes CSV + JSON, moves nothing)
-ytid plan --target "/Music Videos" --out manifest
+yt-id plan --target "/Music Videos" --out manifest
 
 # 5. Review manifest.csv, curate config/overrides.yaml, re-run classify/plan.
 #    When happy, apply:
-ytid apply --manifest manifest.json
+yt-id apply --manifest manifest.json
 
 # Undo the last applied manifest:
-ytid apply --manifest manifest.json --undo
+yt-id apply --manifest manifest.json --undo
 ```
 
 MusicBrainz-based genre suggestions are deferred to v2. In v1, genre comes from
