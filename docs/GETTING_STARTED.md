@@ -178,6 +178,9 @@ Computes destination paths. **Nothing is moved.**
 yt-id plan --target "/Music Videos"
 # tidy destination filenames + prepend artist/title:
 yt-id plan --target "/Music Videos" --clean-names moderate --enhance-names
+# only make an <Artist>/ folder once an artist has >= 2 files (sparse ones
+# stay in <target>/<genre>/ instead):
+yt-id plan --target "/Music Videos" --min-artist-files 2
 ```
 
 ### Step 5 — `apply`: execute the manifest

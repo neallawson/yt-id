@@ -62,6 +62,42 @@ def test_plan_without_genre_places_directly_under_artist(tmp_path):
     assert Path(pm.to_path) == tmp_path / "out" / "Nazz" / "B.mp4"
 
 
+def test_min_artist_files_flattens_sparse_artist_keeping_genre(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "sparse00001", "S.mp4", "Solo", "rock")
+    planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
+    pm = next(p for p in planned if p.youtube_id == "sparse00001")
+    # Below threshold: artist folder dropped, genre grouping kept.
+    assert Path(pm.to_path) == tmp_path / "out" / "rock" / "S.mp4"
+
+
+def test_min_artist_files_flattens_sparse_artist_to_root_without_genre(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "sparse00002", "S.mp4", "Solo", None)
+    planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
+    pm = next(p for p in planned if p.youtube_id == "sparse00002")
+    # Below threshold and no genre: lands directly in the target root.
+    assert Path(pm.to_path) == tmp_path / "out" / "S.mp4"
+
+
+def test_min_artist_files_keeps_folder_when_threshold_met(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "many0000001", "A.mp4", "Nazz", "rock")
+    _seed_move(db_path, "many0000002", "B.mp4", "Nazz", "rock")
+    planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
+    for yid, fname in (("many0000001", "A.mp4"), ("many0000002", "B.mp4")):
+        pm = next(p for p in planned if p.youtube_id == yid)
+        assert Path(pm.to_path) == tmp_path / "out" / "rock" / "Nazz" / fname
+
+
+def test_min_artist_files_default_always_creates_folder(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "single00001", "S.mp4", "Solo", "rock")
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "single00001")
+    assert Path(pm.to_path) == tmp_path / "out" / "rock" / "Solo" / "S.mp4"
+
+
 # --- clean_filename: level=None is a no-op ---------------------------------
 
 

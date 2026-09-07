@@ -288,17 +288,20 @@ def _target_path(
     clean_names: str | None = None,
     title: str | None = None,
     enhance_names: bool = False,
+    include_artist_folder: bool = True,
 ) -> Path:
     dest = target_root
     if genre:
         dest = dest / sanitize_component(genre)
+    if include_artist_folder:
+        dest = dest / sanitize_component(artist)
     if enhance_names:
         fname = enhance_filename(filename, artist, title, clean_names)
     elif clean_names:
         fname = clean_filename(filename, clean_names)
     else:
         fname = filename
-    return dest / sanitize_component(artist) / fname
+    return dest / fname
 
 
 def _resolve_collision(dest: Path, youtube_id: str, taken: set[str]) -> Path:
@@ -315,7 +318,16 @@ def build_plan(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     clean_names: str | None = None,
     enhance_names: bool = False,
+    min_artist_files: int = 1,
 ) -> list[PlannedMove]:
+    """Compute destination paths for every moved file.
+
+    min_artist_files controls when an ``<Artist>/`` folder is created: an artist
+    with fewer than this many moved files in the plan is flattened one level up
+    (its files land in ``<target>/<genre>/`` instead of
+    ``<target>/<genre>/<Artist>/``, or directly in ``<target>/`` when there is
+    no genre). The default of 1 always creates the artist folder.
+    """
     target_root = Path(target_root).expanduser()
     planned: list[PlannedMove] = []
     taken: set[str] = set()
@@ -331,12 +343,22 @@ def build_plan(
             """
         ).fetchall()
 
+        # Pre-count moved files per artist so sparse artists can be flattened.
+        artist_counts: dict[str, int] = {}
+        for r in rows:
+            if r["action"] == "move" and r["artist"]:
+                artist_counts[r["artist"]] = artist_counts.get(r["artist"], 0) + 1
+
         for r in rows:
             to_path: str | None = None
             if r["action"] == "move" and r["artist"]:
+                include_artist_folder = (
+                    artist_counts.get(r["artist"], 0) >= min_artist_files
+                )
                 dest = _target_path(
                     target_root, r["genre"], r["artist"], r["filename"],
                     clean_names, title=r["title"], enhance_names=enhance_names,
+                    include_artist_folder=include_artist_folder,
                 )
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))

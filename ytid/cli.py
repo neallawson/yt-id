@@ -158,7 +158,7 @@ def _cmd_review(args) -> int:
 def _cmd_plan(args) -> int:
     planned = plan_mod.build_plan(
         args.target, db_path=args.db, clean_names=args.clean_names,
-        enhance_names=args.enhance_names,
+        enhance_names=args.enhance_names, min_artist_files=args.min_artist_files,
     )
     paths = plan_mod.write_manifest(planned, args.out)
     summary = plan_mod.summarize(planned)
@@ -290,6 +290,14 @@ def build_parser() -> argparse.ArgumentParser:
              "(Artist_Title_<rest-including-youtubeid>.ext), skipping any part "
              "already present. Injected text is always sanitized; combine with "
              "--clean-names to also scrub the original tail. Default: off.",
+    )
+    p_plan.add_argument(
+        "--min-artist-files", dest="min_artist_files", type=int, default=1,
+        metavar="N",
+        help="minimum number of moved files an artist needs before an "
+             "<Artist>/ folder is created. Artists below N are flattened one "
+             "level up: files land in <target>/<genre>/ (or <target>/ when "
+             "there is no genre). Default: 1 (always create the artist folder).",
     )
     p_plan.set_defaults(func=_cmd_plan)
 

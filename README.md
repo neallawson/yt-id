@@ -317,6 +317,29 @@ Behavior:
   on its own, `--enhance-names` leaves the existing tail untouched.
 - The transform is **idempotent** — re-running does not stack prefixes.
 
+### Sparse-artist flattening (`plan --min-artist-files`)
+
+By default every moved file is filed under `<target>/<genre>/<Artist>/`. When an
+artist has only a handful of videos, that folder can feel like clutter. Pass
+`--min-artist-files N` to require at least **N** moved files for an artist before
+its `<Artist>/` folder is created:
+
+```bash
+yt-id plan --target "/Music Videos" --min-artist-files 2
+```
+
+- The count is the number of **`move`-action files for that artist in this
+  plan** (review/skip items don't count).
+- Artists **below** the threshold are flattened **one level up** — only the
+  artist folder is dropped, genre grouping is kept: `<target>/<genre>/<file>`
+  (or `<target>/<file>` when there is no genre, e.g. under
+  `classify --allow-missing-genre`).
+- Artists **at or above** the threshold are unchanged
+  (`<target>/<genre>/<Artist>/<file>`).
+- The default is `1`, which always creates the artist folder (original
+  behavior). Same-name collisions from flattening are handled by the existing
+  YouTube-ID suffix rule.
+
 ### Path storage & relocation (planned)
 
 Today paths are stored **as given**: the DB records whatever `--source` you pass
