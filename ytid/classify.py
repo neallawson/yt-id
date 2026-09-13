@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import db
+from . import db, worklist
 from .config import Config, load_config
 
 # Words/patterns that mark a title as non-song context; used to lower confidence.
@@ -103,7 +103,7 @@ def decide(
         genre = ov.genre or cfg.overrides.artist_genre(ov.artist) or "other"
         action = ov.action or ("move" if genre != "other" else "review")
         return Decision(
-            youtube_id, _clean(ov.artist), None, genre, action, 1.0,
+            youtube_id, _clean(ov.artist), _clean(ov.title), genre, action, 1.0,
             "video override",
         )
 
@@ -183,7 +183,7 @@ def list_decisions(
     """
     sql = (
         "SELECT d.youtube_id, d.action, d.artist, d.title, d.genre, d.reason, "
-        "       d.confidence, v.filename, v.src_path, v.fetch_status "
+        "       d.confidence, v.filename, v.src_path, v.fetch_status, v.raw_json "
         "  FROM decisions d "
         "  JOIN videos v ON v.youtube_id = d.youtube_id "
     )
@@ -200,14 +200,24 @@ def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     config_dir: str | Path | None = None,
     allow_missing_genre: bool = False,
+    worklist_path: str | Path | None = worklist.WORKLIST_FILE,
 ) -> dict[str, int]:
     """Classify every known video and upsert into the decisions table.
 
     When allow_missing_genre is True, a confidently-identified artist with no
     genre is moved into `<target>/<Artist>/` (genre folder omitted) rather than
     routed to review. Low-confidence artists still go to review.
+
+    When a working-dir worklist (``ytid.yaml``) is present it is applied first:
+    any ``unidentified`` entry that now carries a youtube_id is assigned to its
+    row, and the worklist's per-video/artist overrides are layered on top of
+    ``overrides.yaml`` (worklist wins).
     """
     cfg = load_config(config_dir)
+    if worklist_path and Path(worklist_path).is_file():
+        extra, _ = worklist.apply_worklist(db_path, worklist_path)
+        cfg.overrides.artists.update(extra.artists)
+        cfg.overrides.videos.update(extra.videos)
     counts = {"total": 0, "move": 0, "review": 0, "skip": 0}
     now = datetime.now(timezone.utc).isoformat()
 

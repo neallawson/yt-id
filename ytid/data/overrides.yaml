@@ -11,5 +11,6 @@ artists: {}
 
 # Per-video overrides keyed by the 11-char YouTube ID. Use for oddballs that
 # have no clean artist, live compilations, documentaries, locations, etc.
-# action: move | review | skip
+# Each entry may set: artist, title, genre (optional), action (move|review|skip).
+# For a single working folder, prefer the auto-generated ./ytid.yaml instead.
 videos: {}

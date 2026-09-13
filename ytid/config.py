@@ -49,6 +49,7 @@ class GenreMap:
 @dataclass
 class VideoOverride:
     artist: str | None = None
+    title: str | None = None
     genre: str | None = None
     action: str | None = None  # move|review|skip
 
@@ -172,6 +173,7 @@ def load_config(config_dir: str | Path | None = None) -> Config:
         spec = spec or {}
         videos[str(vid)] = VideoOverride(
             artist=spec.get("artist"),
+            title=spec.get("title"),
             genre=(str(spec["genre"]).strip().lower() if spec.get("genre") else None),
             action=spec.get("action"),
         )

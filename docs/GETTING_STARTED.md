@@ -80,6 +80,37 @@ current working directory.**
   yt-id --db ~/ytid/library.db scan --source ~/Videos
   ```
 
+The intended workflow is folder-centric: `cd` into the folder that holds the
+videos you want to organize and run everything from there. `--source` defaults
+to `.` (the current directory), so a bare `yt-id scan` indexes the folder you
+are standing in, and both `ytid.db` and `ytid.yaml` (below) are written there.
+
+### The file of record (`ytid.yaml`)
+Anything the pipeline can't resolve on its own is collected into a single
+working-directory file, **`ytid.yaml`**, created next to `ytid.db`. It is both
+an auto-generated worklist and the authoritative source of your manual answers:
+
+- **`videos:`** — a known YouTube ID whose metadata came back empty
+  (`unavailable`/`error`) or that classify sent to review. Fill in `artist` and
+  `title` (`genre` optional; `action` = move|review|skip).
+- **`unidentified:`** — a file with *no* detectable ID. The full filename is
+  shown; you supply `youtube_id` plus metadata, and `classify` promotes the row
+  to resolved.
+- **`artists:`** — optional `artist -> genre` shortcuts applied to all their
+  videos.
+
+`scan` and `fetch` refresh this file automatically (non-destructively: your
+edits are preserved, new problems are appended). Regenerate or inspect it
+anytime:
+
+```bash
+yt-id worklist          # (re)write ytid.yaml with anything still pending
+yt-id worklist --list   # just print pending items, don't write
+```
+
+After filling in the blanks, run `yt-id classify` — it applies `ytid.yaml`
+before deciding, so your answers (including titles) win over any guess.
+
 ### Config files (`genre_map.yaml`, `overrides.yaml`)
 Two YAML files drive classification. Each is resolved **independently**, with
 the first match winning (per file):
@@ -124,27 +155,30 @@ yt-id plan --target "/Music Videos" --out /tmp/ytid-manifest
 
 ---
 
-## 4. The workflow (5 stages)
+## 4. The workflow
 
 Everything is safe/dry-run by default. Only `apply --apply` moves files.
 
 ```
-scan → (unresolved / resolve) → fetch → classify → (review) → plan → apply
+scan → fetch → classify → (fix ytid.yaml) → classify → plan → apply
+                   ↑___________________________|
 ```
+
+`scan`, `fetch`, **and `classify`** all refresh `ytid.yaml`. The big bucket —
+low-confidence files that classify couldn't confidently place — only exists
+*after* `classify`, so it's `classify` that lists them (pre-filled with its best
+guess). The normal loop is therefore: `classify`, open `ytid.yaml`, correct the
+guesses / add genres, `classify` again.
 
 ### Step 1 — `scan`: index your source folder
 Walks a folder recursively and records each file, extracting its YouTube ID.
+`--source` defaults to `.`, so from inside the folder you're organizing just run:
 ```bash
-yt-id scan --source ~/Videos/YouTube
+yt-id scan                        # index the current directory
+yt-id scan --source ~/Videos/YouTube   # or point somewhere else
 ```
-Files whose ID can't be confidently detected are flagged for attention.
-
-### Step 1a — `unresolved` / `resolve`: fix ambiguous files (optional)
-```bash
-yt-id unresolved                              # list files needing attention
-yt-id resolve --id 42 --youtube-id dQw4w9WgXcQ   # assign an ID manually
-yt-id resolve --id 43 --ignore                # or mark it ignored
-```
+Files whose ID can't be confidently detected are added to `ytid.yaml` under
+`unidentified:` for you to complete (see Step 2a).
 
 ### Step 2 — `fetch`: get metadata via yt-dlp (slow, network)
 Politely rate-limited; results are cached in the DB so you only fetch once.
@@ -153,6 +187,38 @@ yt-id fetch                       # fetch everything pending
 yt-id fetch --limit 20            # do a batch at a time
 yt-id fetch --retry-errors        # retry previous transient failures
 ```
+Videos that come back `unavailable`/`error` are added to `ytid.yaml` under
+`videos:` so you can supply their details.
+
+### Step 2a — fix `ytid.yaml`: confirm/correct what the system guessed
+Open `ytid.yaml` (auto-created in the working dir). Entries added by `classify`
+come **pre-filled with its best-guess** `artist`/`title` — you only correct what's
+wrong and add a `genre` (YouTube rarely provides one). A completed `videos:`
+entry wins unconditionally and moves:
+```yaml
+videos:
+  8R5El2HWMIo:
+    file: "Atomic Rooster - The Devils Answer [8R5El2HWMIo].webm"
+    artist: Atomic Rooster
+    title: The Devils Answer
+    genre: rock          # needed to move (else it stays in review)
+    action: move         # optional: move|review|skip
+```
+For a file with no detectable ID, add the id yourself (the full filename is
+shown so you know which one it is):
+```yaml
+unidentified:
+- file: "some ambiguous name.webm"
+  youtube_id: dQw4w9WgXcQ
+  artist: Rick Astley
+  title: Never Gonna Give You Up
+  genre: pop
+```
+Regenerate or review the list anytime with `yt-id worklist` /
+`yt-id worklist --list`. The next `classify` applies everything here first.
+
+Still need the low-level id fixer? `yt-id unresolved` / `yt-id resolve --id N
+--youtube-id …` remain available for one-off DB edits.
 
 ### Step 3 — `classify`: decide artist / genre / action
 Applies your config + heuristics and stores a decision per video.
@@ -170,7 +236,8 @@ yt-id review                 # the review queue (default)
 yt-id review --action move   # what will be moved
 yt-id review --action skip
 ```
-Curate `overrides.yaml` from what you see here, then re-run `classify`.
+Curate `ytid.yaml` (or `overrides.yaml`) from what you see here, then re-run
+`classify`.
 
 ### Step 4 — `plan`: build a dry-run manifest
 Computes destination paths. **Nothing is moved.**
@@ -209,9 +276,10 @@ On failure the default policy rolls back the current run; `--on-error stop` or
 ## 6. Quick end-to-end example
 
 ```bash
-# from a working directory you'll reuse (this is where ytid.db is created)
-yt-id scan     --source ~/Videos/YouTube
+# from inside the folder you're organizing (ytid.db + ytid.yaml live here)
+yt-id scan
 yt-id fetch
+# open ytid.yaml and fill in anything flagged, then:
 yt-id classify --allow-missing-genre
 yt-id review                      # sanity-check the queue
 yt-id plan     --target "/Music Videos" --clean-names moderate --enhance-names

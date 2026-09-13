@@ -13,6 +13,7 @@ Everything defaults to safe/dry-run behavior; `apply` requires an explicit
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from . import apply as apply_mod
@@ -23,7 +24,22 @@ from . import fetch as fetch_mod
 from . import plan as plan_mod
 from . import resolve as resolve_mod
 from . import scan as scan_mod
+from . import worklist as worklist_mod
 from .ytdlp_client import DEFAULT_BINARY, YtDlpNotFound, get_version
+
+
+def _sync_worklist(args) -> None:
+    """Refresh the working-dir ytid.yaml and point the user at anything pending."""
+    stats = worklist_mod.sync_worklist(db_path=args.db, path=args.worklist)
+    pending = stats["pending_videos"] + stats["pending_unidentified"]
+    if not pending:
+        return
+    added = stats["added_videos"] + stats["added_unidentified"]
+    note = f" (+{added} new)" if added else ""
+    print(
+        f"worklist: {pending} item(s) need details{note} -> edit {args.worklist} "
+        f"then run `yt-id classify`"
+    )
 
 
 def _cmd_scan(args) -> int:
@@ -36,9 +52,7 @@ def _cmd_scan(args) -> int:
         "scan: status "
         + " ".join(f"{k}={v}" for k, v in sorted(tally.items()))
     )
-    need = sum(tally.get(s, 0) for s in resolve_mod.NEEDS_ATTENTION)
-    if need:
-        print(f"scan: {need} file(s) need manual attention -> run `yt-id unresolved`")
+    _sync_worklist(args)
     return 0
 
 
@@ -105,6 +119,7 @@ def _cmd_fetch(args) -> int:
         f"fetch: attempted={counts['attempted']} ok={counts['ok']} "
         f"error={counts['error']} unavailable={counts['unavailable']}"
     )
+    _sync_worklist(args)
     return 0
 
 
@@ -112,11 +127,16 @@ def _cmd_classify(args) -> int:
     counts = classify_mod.classify_all(
         db_path=args.db, config_dir=args.config,
         allow_missing_genre=args.allow_missing_genre,
+        worklist_path=args.worklist,
     )
     print(
         f"classify: total={counts['total']} move={counts.get('move', 0)} "
         f"review={counts.get('review', 0)} skip={counts.get('skip', 0)}"
     )
+    # Fold the freshly-created review bucket into the file of record so the
+    # low-confidence items are visible and fixable (they only exist after this
+    # step, so scan/fetch could not have listed them).
+    _sync_worklist(args)
     return 0
 
 
@@ -138,19 +158,70 @@ def _cmd_config(args) -> int:
     return 0
 
 
+def _cmd_worklist(args) -> int:
+    if args.list:
+        items = worklist_mod.pending_items(db_path=args.db)
+        for r in items["unidentified"]:
+            print(f"[no-id]  {r['resolve_status']:<10} {r['filename']}")
+        for r in items["videos"]:
+            print(f"{r['youtube_id']}  fetch={r['fetch_status']:<11} {r['filename']}")
+        total = len(items["videos"]) + len(items["unidentified"])
+        print(
+            f"worklist: {len(items['unidentified'])} unidentified, "
+            f"{len(items['videos'])} need details ({total} total)"
+        )
+        return 0
+
+    stats = worklist_mod.sync_worklist(db_path=args.db, path=args.worklist)
+    pending = stats["pending_videos"] + stats["pending_unidentified"]
+    if not stats["wrote"]:
+        print("worklist: nothing needs attention (no file written)")
+        return 0
+    added = stats["added_videos"] + stats["added_unidentified"]
+    print(
+        f"worklist: wrote {args.worklist} -- {pending} item(s) need details "
+        f"(+{added} new). Fill in the blanks, then run `yt-id classify`."
+    )
+    return 0
+
+
 def _cmd_review(args) -> int:
     rows = classify_mod.list_decisions(db_path=args.db, action=args.action)
     if not rows:
         print(f"review: no decisions with action={args.action}")
         return 0
     for r in rows:
-        artist = r["artist"] or "-"
+        meta = {}
+        if r["raw_json"]:
+            try:
+                meta = json.loads(r["raw_json"])
+            except (ValueError, TypeError):
+                meta = {}
         print(
             f"{r['youtube_id']}  [{r['action']}] conf={r['confidence']:.2f} "
-            f"fetch={r['fetch_status']}  {artist}"
+            f"fetch={r['fetch_status']}"
         )
-        print(f"    {r['filename']}")
-        print(f"    reason: {r['reason']}")
+        print(f"    file:    {r['filename']}")
+        if meta:
+            fetched_title = meta.get("title") or "-"
+            channel = meta.get("channel") or meta.get("uploader") or "-"
+            struct = []
+            if meta.get("artist"):
+                struct.append(f"artist={meta['artist']!r}")
+            if meta.get("track"):
+                struct.append(f"track={meta['track']!r}")
+            if meta.get("genre"):
+                struct.append(f"genre={meta['genre']!r}")
+            struct_str = " ".join(struct) if struct else "(none from YouTube)"
+            print(f"    fetched: title={fetched_title!r}  channel={channel!r}")
+            print(f"    fetched: structured {struct_str}")
+        else:
+            print("    fetched: (no metadata)")
+        print(
+            f"    parsed:  artist={r['artist'] or '-'!r}  "
+            f"title={r['title'] or '-'!r}  genre={r['genre'] or '-'}"
+        )
+        print(f"    reason:  {r['reason']}")
     print(f"review: {len(rows)} item(s) with action={args.action}")
     return 0
 
@@ -204,7 +275,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_scan = sub.add_parser("scan", help="index source folder by YouTube ID")
-    p_scan.add_argument("--source", required=True, help="folder to scan recursively")
+    p_scan.add_argument(
+        "--source", default=".",
+        help="folder to scan recursively (default: the current directory)",
+    )
+    p_scan.add_argument(
+        "--worklist", default=worklist_mod.WORKLIST_FILE,
+        help="path to the working-dir file of record (default: ytid.yaml)",
+    )
     p_scan.set_defaults(func=_cmd_scan)
 
     p_unres = sub.add_parser(
@@ -239,6 +317,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--retry-unavailable", action="store_true",
         help="also retry deleted/blocked videos",
     )
+    p_fetch.add_argument(
+        "--worklist", default=worklist_mod.WORKLIST_FILE,
+        help="path to the working-dir file of record (default: ytid.yaml)",
+    )
     p_fetch.set_defaults(func=_cmd_fetch)
 
     p_classify = sub.add_parser("classify", help="decide artist/genre/action")
@@ -251,7 +333,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-missing-genre", dest="allow_missing_genre", action="store_true",
         help="move confident artist-only files into /Artist (no genre folder)",
     )
+    p_classify.add_argument(
+        "--worklist", default=worklist_mod.WORKLIST_FILE,
+        help="working-dir file of record applied before deciding (default: "
+             "ytid.yaml); pass an empty string to ignore it",
+    )
     p_classify.set_defaults(func=_cmd_classify)
+
+    p_work = sub.add_parser(
+        "worklist",
+        help="regenerate ytid.yaml (the fill-in file of record) or list what's pending",
+    )
+    p_work.add_argument(
+        "--worklist", default=worklist_mod.WORKLIST_FILE,
+        help="path to write/update (default: ytid.yaml)",
+    )
+    p_work.add_argument(
+        "--list", action="store_true",
+        help="just print pending items to stdout instead of writing the file",
+    )
+    p_work.set_defaults(func=_cmd_worklist)
 
     p_config = sub.add_parser(
         "config", help="show which config files are in effect"

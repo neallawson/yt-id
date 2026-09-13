@@ -76,6 +76,34 @@ yt-id resolve --id 42 --ignore
 Manual resolutions (`id_source = 'manual'`) and `ignored` rows are preserved
 across rescans.
 
+### The working-dir file of record (`ytid.yaml`)
+
+For the common folder-centric workflow — `cd` into a folder and run everything
+there (`--source` defaults to `.`) — everything the pipeline can't resolve on
+its own is collected into a single **`ytid.yaml`** written next to `ytid.db`. It
+is both an auto-generated worklist and the authoritative source of your manual
+answers, so you edit one file instead of juggling `resolve` and `overrides.yaml`:
+
+- **`videos:`** — keyed by YouTube ID; a fetch that came back `unavailable`/
+  `error`, or a decision that landed in `review`. Supply `artist`/`title`
+  (`genre` optional, `action` = move|review|skip).
+- **`unidentified:`** — files with **no** detectable ID; the full filename is
+  shown and you add the `youtube_id` (plus metadata). `classify` then promotes
+  the row to `resolved`.
+- **`artists:`** — optional `artist → genre` shortcuts.
+
+`scan` and `fetch` refresh it **non-destructively** (your edits are preserved,
+new problems appended). Regenerate or inspect it anytime:
+
+```bash
+yt-id worklist          # (re)write ytid.yaml with anything still pending
+yt-id worklist --list   # print pending items without writing
+```
+
+`classify` applies `ytid.yaml` first — assigning any supplied IDs and layering
+its per-video/artist overrides on top of `overrides.yaml` (the working-dir file
+wins), so a manually-supplied `title` flows straight through to `plan`.
+
 ### Review bucket (manual handling)
 
 `classify` assigns every tracked video an `action` of `move`, `review`, or
@@ -117,8 +145,10 @@ yt-id classify --allow-missing-genre
 
 Two YAML files drive classification: `genre_map.yaml` (the coarse genre folders
 and a fine→coarse `normalize` map) and `overrides.yaml` (your ground-truth
-artist→genre mappings and per-video decisions). Sensible defaults ship **inside
-the package**, so the tool works out of the box after install.
+`artists:` map plus per-video decisions under `videos:`, each accepting
+`artist`, `title`, `genre`, and `action`). Sensible defaults ship **inside the
+package**, so the tool works out of the box after install. For a single working
+folder, prefer editing `ytid.yaml` (above), which layers on top of these.
 
 Each file is resolved **independently**, first match wins:
 

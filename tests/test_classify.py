@@ -24,6 +24,21 @@ def test_video_override_wins():
     assert d.reason == "video override"
 
 
+def test_video_override_supplies_title_without_metadata():
+    cfg = make_config()
+    cfg.overrides.videos["8R5El2HWMIo"] = VideoOverride(
+        artist="Atomic Rooster", title="The Devils Answer", genre="rock", action="move"
+    )
+    # meta is None (fetch was unavailable) -- the override must still win and
+    # carry the title through.
+    d = decide("8R5El2HWMIo", None, cfg)
+    assert d.artist == "Atomic Rooster"
+    assert d.title == "The Devils Answer"
+    assert d.genre == "rock"
+    assert d.action == "move"
+    assert d.reason == "video override"
+
+
 def test_structured_fields_with_artist_override_genre():
     cfg = make_config()
     meta = {"artist": "Atomic Rooster", "track": "The Devil's Answer", "title": "whatever"}
