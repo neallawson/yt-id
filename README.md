@@ -25,6 +25,7 @@ network-bound work is isolated from the fast, local work:
 | `classify`| Derive artist/title/genre + action; `review` lists it| fast, local  |
 | `plan`    | Build a dry-run move manifest (CSV/JSON)            | fast, local  |
 | `apply`   | Execute the manifest; `--undo` reverses it          | fast, local  |
+| `export`  | Dump a denormalized audit ledger (CSV/JSON)         | fast, local  |
 | `validate`| Verify the manifest was executed correctly (planned)| fast, local  |
 | `config`  | Show which config files are in effect (`config path`)| fast, local  |
 
@@ -392,6 +393,40 @@ yt-id plan --target "/Music Videos" --min-artist-files 2
 - The default is `1`, which always creates the artist folder (original
   behavior). Same-name collisions from flattening are handled by the existing
   YouTube-ID suffix rule.
+
+### Audit ledger (`export`)
+
+Once a batch is applied, `export` dumps a **denormalized ledger** — one row per
+tracked file, joining `videos` + `decisions` + the latest `moves` row — so the
+artifact you archive next to the moved videos is a human-readable master record
+that stands on its own without the SQLite DB:
+
+```bash
+yt-id export                          # writes ledger.json and ledger.csv
+yt-id export --format csv --out audit # just audit.csv
+yt-id export --format json            # ledger.json only (with a meta header)
+```
+
+Each row reads as a story: `youtube_id`, `original_filename`, `src_path`,
+`id_source`, `resolve_status`, `fetch_status`, `ytdlp_version`, `artist`,
+`title`, `genre`, `action`, `confidence`, `reason`, `target_path`, `moved_to`,
+`move_status`, `applied_at`, `undone_at`.
+
+- **Complete account.** Unresolved and unmoved files are included (via left
+  joins), so the ledger reflects the whole corpus, not just the successes.
+- **Current state.** The latest `moves` row wins, so a move later undone reports
+  `rolled_back`.
+- **CSV vs JSON.** CSV is a flat, spreadsheet-friendly table of the rows; JSON
+  carries a self-describing `meta` header (generation time, tool/yt-dlp
+  versions, counts) alongside the rows.
+
+This is a **view** of the DB for auditing — not a restore format. A durable
+archive pairs it with the raw `ytid.db` (queryable truth) and `ytid.yaml` (your
+re-appliable manual layer):
+
+```bash
+tar czf archive/2026-05-01-batch.tar.gz ytid.db ytid.yaml ledger.json ledger.csv
+```
 
 ### Path storage & relocation (planned)
 

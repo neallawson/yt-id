@@ -5,6 +5,7 @@
     yt-id classify
     yt-id plan     --target DIR [--out PREFIX]
     yt-id apply    --manifest FILE [--undo] [--apply]
+    yt-id export   [--format {csv,json,both}] [--out PREFIX]
 
 Everything defaults to safe/dry-run behavior; `apply` requires an explicit
 --apply flag to actually move files.
@@ -20,6 +21,7 @@ from . import apply as apply_mod
 from . import classify as classify_mod
 from . import config as config_mod
 from . import db
+from . import export as export_mod
 from . import fetch as fetch_mod
 from . import plan as plan_mod
 from . import resolve as resolve_mod
@@ -327,6 +329,17 @@ def _cmd_apply(args) -> int:
     return 0 if result["ok"] else 2
 
 
+def _cmd_export(args) -> int:
+    ledger = export_mod.build_ledger(db_path=args.db)
+    meta = export_mod.build_meta(args.db, ledger)
+    written = export_mod.write_ledger(ledger, args.out, args.format, meta=meta)
+    paths = " and ".join(written.values())
+    print(
+        f"export: {meta['total']} row(s) ({meta['moved']} moved) -> {paths}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="yt-id", description=__doc__)
     parser.add_argument("--db", default=db.DEFAULT_DB_PATH, help="SQLite DB path")
@@ -504,6 +517,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="failure policy: rollback (default) reverses this run, stop halts, skip continues",
     )
     p_apply.set_defaults(func=_cmd_apply)
+
+    p_export = sub.add_parser(
+        "export",
+        help="dump a denormalized audit ledger (videos + decisions + moves)",
+    )
+    p_export.add_argument(
+        "--out", default="ledger",
+        help="output prefix for the ledger file(s) (default: ledger)",
+    )
+    p_export.add_argument(
+        "--format", choices=export_mod.EXPORT_FORMATS, default="both",
+        help="csv (spreadsheet-friendly), json (structured, with a meta "
+             "header), or both (default)",
+    )
+    p_export.set_defaults(func=_cmd_export)
 
     return parser
 

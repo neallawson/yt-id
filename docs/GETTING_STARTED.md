@@ -275,6 +275,21 @@ yt-id apply --manifest manifest.json --undo --apply   # reverse a prior apply
 On failure the default policy rolls back the current run; `--on-error stop` or
 `skip` change that behavior.
 
+### Step 6 — `export`: archive an audit ledger (optional but recommended)
+After the files are moved, dump a **denormalized ledger** — one row per file,
+joining what was scanned, decided, and where it landed — so you have a
+human-readable master record independent of the DB:
+```bash
+yt-id export                          # writes ledger.json + ledger.csv
+yt-id export --format csv --out audit # just audit.csv
+```
+Then archive it alongside the DB and your manual answers, next to the videos:
+```bash
+tar czf ~/archive/2026-05-01-batch.tar.gz ytid.db ytid.yaml ledger.json ledger.csv
+```
+The ledger is a **view** for auditing, not a restore format: `ytid.db` remains
+the queryable truth and `ytid.yaml` the re-appliable record of your hand edits.
+
 ---
 
 ## 5. Safety model
@@ -301,6 +316,7 @@ yt-id review                      # sanity-check the queue
 yt-id plan     --target "/Music Videos" --clean-names moderate --enhance-names
 yt-id apply    --manifest manifest.json          # dry-run
 yt-id apply    --manifest manifest.json --apply  # go
+yt-id export                                      # ledger.json + ledger.csv (audit)
 ```
 
 ---
