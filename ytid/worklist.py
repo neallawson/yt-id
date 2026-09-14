@@ -109,6 +109,62 @@ def _write(path: str | Path, data: dict[str, Any]) -> None:
     Path(path).write_text(_HEADER + body, encoding="utf-8")
 
 
+def _scalar(node: Any) -> str:
+    """Return a mapping value node's scalar text ('' for missing/non-scalar)."""
+    return node.value if isinstance(node, yaml.ScalarNode) else ""
+
+
+def _entry_from_node(map_node: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if isinstance(map_node, yaml.MappingNode):
+        for key, val in map_node.value:
+            out[key.value] = _scalar(val)
+    return out
+
+
+def read_entries(path: str | Path = WORKLIST_FILE) -> dict[str, list[dict]]:
+    """Parse ``ytid.yaml`` preserving 1-based line numbers for each entry.
+
+    Unlike ``pending_items`` (which reads the DB), this reflects the *file* as
+    the user sees it, so blank fields and editor line numbers are available for
+    ``worklist --list`` filtering. Each returned dict carries a ``line`` key.
+    """
+    empty: dict[str, list[dict]] = {"videos": [], "unidentified": []}
+    p = Path(path)
+    if not p.is_file():
+        return empty
+    with p.open("r", encoding="utf-8") as fh:
+        root = yaml.compose(fh)
+    if not isinstance(root, yaml.MappingNode):
+        return empty
+    top = {k.value: v for k, v in root.value}
+
+    vids = top.get("videos")
+    if isinstance(vids, yaml.MappingNode):
+        for key, val in vids.value:
+            entry = _entry_from_node(val)
+            entry["youtube_id"] = key.value
+            entry["line"] = key.start_mark.line + 1
+            empty["videos"].append(entry)
+
+    unid = top.get("unidentified")
+    if isinstance(unid, yaml.SequenceNode):
+        for item in unid.value:
+            entry = _entry_from_node(item)
+            entry["line"] = item.start_mark.line + 1
+            empty["unidentified"].append(entry)
+    return empty
+
+
+def resolved_actions(db_path: str | Path = db.DEFAULT_DB_PATH) -> dict[str, str]:
+    """Map youtube_id -> the latest classify decision action (move|review|skip)."""
+    with db.session(db_path) as conn:
+        return {
+            r["youtube_id"]: r["action"]
+            for r in conn.execute("SELECT youtube_id, action FROM decisions")
+        }
+
+
 def pending_items(db_path: str | Path = db.DEFAULT_DB_PATH) -> dict[str, list[dict]]:
     """Return the two problem buckets the worklist tracks.
 

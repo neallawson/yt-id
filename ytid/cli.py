@@ -158,17 +158,75 @@ def _cmd_config(args) -> int:
     return 0
 
 
+def _worklist_missing_fields(args) -> list[str]:
+    fields = []
+    if args.missing_artist:
+        fields.append("artist")
+    if args.missing_title:
+        fields.append("title")
+    if args.missing_genre:
+        fields.append("genre")
+    return fields
+
+
+def _worklist_matches(entry, resolved_action, action_filter, missing) -> bool:
+    if missing and not any(not (entry.get(f) or "").strip() for f in missing):
+        return False
+    if action_filter == "all":
+        return True
+    if action_filter == "blank":
+        return not (entry.get("action") or "").strip()
+    # move|review|skip filter on the *resolved* decision (what will happen).
+    return resolved_action == action_filter
+
+
 def _cmd_worklist(args) -> int:
     if args.list:
-        items = worklist_mod.pending_items(db_path=args.db)
-        for r in items["unidentified"]:
-            print(f"[no-id]  {r['resolve_status']:<10} {r['filename']}")
-        for r in items["videos"]:
-            print(f"{r['youtube_id']}  fetch={r['fetch_status']:<11} {r['filename']}")
-        total = len(items["videos"]) + len(items["unidentified"])
+        entries = worklist_mod.read_entries(args.worklist)
+        resolved = worklist_mod.resolved_actions(db_path=args.db)
+        missing = _worklist_missing_fields(args)
+        vids = entries["videos"]
+        unident = entries["unidentified"]
+
+        shown = 0
+        for e in vids:
+            ract = resolved.get(e.get("youtube_id"), "")
+            if not _worklist_matches(e, ract, args.action, missing):
+                continue
+            shown += 1
+            if args.compact:
+                print(f"{e['line']}\t{ract or '?':<6}\t{e['youtube_id']}\t{e.get('file','')}")
+            else:
+                lacks = [f for f in ("artist", "title", "genre")
+                         if not (e.get(f) or "").strip()]
+                tag = f" missing:{','.join(lacks)}" if lacks else ""
+                print(f"L{e['line']}  [{ract or '?'}]  {e['youtube_id']}{tag}")
+                print(f"    file:  {e.get('file','')}")
+                print(f"    artist={e.get('artist','')!r}  "
+                      f"title={e.get('title','')!r}  genre={e.get('genre','')!r}  "
+                      f"action={e.get('action','')!r}")
+
+        # Unidentified: only relevant unless a resolved-action filter is set.
+        if args.action in ("all", "blank"):
+            for e in unident:
+                if missing and not any(not (e.get(f) or "").strip() for f in missing):
+                    continue
+                shown += 1
+                if args.compact:
+                    print(f"{e['line']}\t{'no-id':<6}\t\t{e.get('file','')}")
+                else:
+                    print(f"L{e['line']}  [no-id]  {e.get('file','')}")
+
+        # Progress summary over the whole file (not just the filtered view).
+        will_move = sum(resolved.get(e.get("youtube_id")) == "move" for e in vids)
+        will_review = sum(resolved.get(e.get("youtube_id")) == "review" for e in vids)
+        need_artist = sum(not (e.get("artist") or "").strip() for e in vids)
+        need_title = sum(not (e.get("title") or "").strip() for e in vids)
         print(
-            f"worklist: {len(items['unidentified'])} unidentified, "
-            f"{len(items['videos'])} need details ({total} total)"
+            f"worklist: shown {shown} | {len(vids)} entries -- "
+            f"{will_move} will move, {will_review} need review; "
+            f"missing artist={need_artist} title={need_title}; "
+            f"unidentified={len(unident)}"
         )
         return 0
 
@@ -358,7 +416,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_work.add_argument(
         "--list", action="store_true",
-        help="just print pending items to stdout instead of writing the file",
+        help="print entries from ytid.yaml (with line numbers) instead of "
+             "writing the file; combine with the filters below",
+    )
+    p_work.add_argument(
+        "--action", choices=["move", "review", "skip", "blank", "all"],
+        default="all",
+        help="filter listing: move|review|skip match the resolved decision "
+             "(what will happen); blank matches an empty action field in the "
+             "file; all = no filter (default)",
+    )
+    p_work.add_argument(
+        "--missing-artist", action="store_true",
+        help="list only entries with an empty artist (OR-combined with other "
+             "--missing-* flags)",
+    )
+    p_work.add_argument(
+        "--missing-title", action="store_true",
+        help="list only entries with an empty title",
+    )
+    p_work.add_argument(
+        "--missing-genre", action="store_true",
+        help="list only entries with an empty genre",
+    )
+    p_work.add_argument(
+        "--compact", action="store_true",
+        help="one tab-separated line per entry: LINE, action, id, filename "
+             "(handy for `$EDITOR +LINE ytid.yaml` and piping)",
     )
     p_work.set_defaults(func=_cmd_worklist)
 

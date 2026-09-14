@@ -100,6 +100,28 @@ yt-id worklist          # (re)write ytid.yaml with anything still pending
 yt-id worklist --list   # print pending items without writing
 ```
 
+`--list` reports each entry with its **line number** in `ytid.yaml` and a
+progress summary, and takes filters so a large file stays scannable:
+
+```bash
+yt-id worklist --list --missing-genre          # entries lacking a genre
+yt-id worklist --list --missing-artist --missing-title  # OR-combined
+yt-id worklist --list --action review          # entries that will land in review
+yt-id worklist --list --action blank           # entries whose action field is empty
+yt-id worklist --list --missing-genre --compact # one tab-separated line each
+```
+
+- **`--missing-artist` / `--missing-title` / `--missing-genre`** keep only
+  entries with that field empty; combining them is an **OR** (missing *any*).
+- **`--action {move,review,skip,blank,all}`** — `move`/`review`/`skip` match the
+  *resolved* decision (what will actually happen); `blank` matches an empty
+  `action` field in the file; `all` (default) applies no action filter.
+- **`--compact`** prints `LINE⇥action⇥id⇥filename`, handy for
+  `$EDITOR +LINE ytid.yaml` and piping.
+
+Refreshes are **append-only**: new problems are added and your existing entries
+are never rewritten or removed, so anything you've already answered stays put.
+
 `classify` applies `ytid.yaml` first — assigning any supplied IDs and layering
 its per-video/artist overrides on top of `overrides.yaml` (the working-dir file
 wins), so a manually-supplied `title` flows straight through to `plan`.

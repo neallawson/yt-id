@@ -325,3 +325,97 @@ def test_classify_cli_writes_review_items_to_worklist(tmp_path):
     entry = _read_yaml(wl)["videos"]["vwIdwgFcEo4"]
     assert entry["artist"] == "40 Watt Sun"
     assert entry["title"] == "Astoria [live]"
+
+
+# --- worklist --list filters (read_entries) ------------------------------
+
+
+def _write_worklist(path, body):
+    Path(path).write_text(body, encoding="utf-8")
+
+
+def test_read_entries_captures_line_numbers_and_fields(tmp_path):
+    wl = tmp_path / "ytid.yaml"
+    _write_worklist(wl, (
+        "videos:\n"
+        "  aaaaaaaaaaa:\n"
+        "    file: A.webm\n"
+        '    artist: "Band A"\n'
+        '    title: "Song A"\n'
+        "    genre: ''\n"
+        "    action: ''\n"
+        "  bbbbbbbbbbb:\n"
+        "    file: B.webm\n"
+        '    artist: ""\n'
+        '    title: "Song B"\n'
+        "    genre: ''\n"
+        "    action: 'move'\n"
+        "unidentified:\n"
+        "- file: mystery.webm\n"
+        "  youtube_id: ''\n"
+    ))
+    entries = worklist.read_entries(wl)
+    vids = {e["youtube_id"]: e for e in entries["videos"]}
+    assert vids["aaaaaaaaaaa"]["line"] == 2      # the '  aaaaaaaaaaa:' line
+    assert vids["aaaaaaaaaaa"]["artist"] == "Band A"
+    assert vids["bbbbbbbbbbb"]["artist"] == ""   # blank
+    assert vids["bbbbbbbbbbb"]["action"] == "move"
+    assert entries["unidentified"][0]["file"] == "mystery.webm"
+    assert entries["unidentified"][0]["line"] == 15
+
+
+def test_worklist_list_missing_artist_filter(tmp_path, capsys):
+    dbp = str(tmp_path / "ytid.db")
+    wl = tmp_path / "ytid.yaml"
+    _write_worklist(wl, (
+        "videos:\n"
+        "  aaaaaaaaaaa:\n"
+        "    file: A.webm\n"
+        '    artist: "Band A"\n'
+        '    title: "Song A"\n'
+        "  bbbbbbbbbbb:\n"
+        "    file: B.webm\n"
+        '    artist: ""\n'
+        '    title: "Song B"\n'
+    ))
+    _seed_video(dbp, src_path="/s/A.webm", filename="A.webm", youtube_id="aaaaaaaaaaa")
+    _seed_video(dbp, src_path="/s/B.webm", filename="B.webm", youtube_id="bbbbbbbbbbb")
+    with db.session(dbp) as conn:
+        conn.execute("INSERT INTO decisions (youtube_id, action, confidence, "
+                     "reason, decided_at) VALUES ('aaaaaaaaaaa','move',1.0,'x',?)", (NOW,))
+        conn.execute("INSERT INTO decisions (youtube_id, action, confidence, "
+                     "reason, decided_at) VALUES ('bbbbbbbbbbb','review',0.0,'x',?)", (NOW,))
+    rc = cli.main(["--db", dbp, "worklist", "--worklist", str(wl),
+                   "--list", "--missing-artist", "--compact"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "bbbbbbbbbbb" in out           # missing artist -> listed
+    assert "aaaaaaaaaaa\t" not in out     # has artist -> filtered out
+    assert "shown 1" in out
+
+
+def test_worklist_list_action_move_uses_resolved_decision(tmp_path, capsys):
+    dbp = str(tmp_path / "ytid.db")
+    wl = tmp_path / "ytid.yaml"
+    _write_worklist(wl, (
+        "videos:\n"
+        "  aaaaaaaaaaa:\n"
+        "    file: A.webm\n"
+        '    artist: "Band A"\n'
+        "  bbbbbbbbbbb:\n"
+        "    file: B.webm\n"
+        '    artist: "Band B"\n'
+    ))
+    _seed_video(dbp, src_path="/s/A.webm", filename="A.webm", youtube_id="aaaaaaaaaaa")
+    _seed_video(dbp, src_path="/s/B.webm", filename="B.webm", youtube_id="bbbbbbbbbbb")
+    with db.session(dbp) as conn:
+        conn.execute("INSERT INTO decisions (youtube_id, action, confidence, "
+                     "reason, decided_at) VALUES ('aaaaaaaaaaa','move',1.0,'x',?)", (NOW,))
+        conn.execute("INSERT INTO decisions (youtube_id, action, confidence, "
+                     "reason, decided_at) VALUES ('bbbbbbbbbbb','review',0.0,'x',?)", (NOW,))
+    rc = cli.main(["--db", dbp, "worklist", "--worklist", str(wl),
+                   "--list", "--action", "move", "--compact"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "aaaaaaaaaaa" in out
+    assert "bbbbbbbbbbb" not in out

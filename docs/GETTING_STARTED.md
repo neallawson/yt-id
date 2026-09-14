@@ -105,8 +105,24 @@ anytime:
 
 ```bash
 yt-id worklist          # (re)write ytid.yaml with anything still pending
-yt-id worklist --list   # just print pending items, don't write
+yt-id worklist --list   # just print pending items (with line numbers), don't write
 ```
+
+`--list` prints each entry with its line number plus a progress summary, and
+accepts filters so a big file stays manageable:
+
+```bash
+yt-id worklist --list --missing-genre           # only entries lacking a genre
+yt-id worklist --list --missing-artist --missing-title  # OR: missing either
+yt-id worklist --list --action review            # what will land in review
+yt-id worklist --list --action blank             # empty action field in the file
+yt-id worklist --list --missing-genre --compact  # LINE<tab>action<tab>id<tab>file
+```
+
+`--compact` output is ideal for jumping straight to a line
+(`$EDITOR +LINE ytid.yaml`) or piping to other tools. Refreshes are
+**append-only** — new problems are added and your existing answers are never
+rewritten or removed.
 
 After filling in the blanks, run `yt-id classify` — it applies `ytid.yaml`
 before deciding, so your answers (including titles) win over any guess.
