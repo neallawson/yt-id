@@ -130,15 +130,16 @@ filename, and the reason it landed in review — so you can curate
 `config/overrides.yaml` (e.g. add an artist→genre mapping) and re-run
 `classify` to promote items to `move`.
 
-**Artist-only moves.** By default a `move` needs both a confident artist and a
-genre. Pass `classify --allow-missing-genre` to also move files that have a
-confident artist but no genre — these are filed directly under
-`<target_root>/<Artist>/` (genre folder omitted). The confidence gate is
-unchanged, so only reliably-identified artists are promoted; low-confidence
-heuristic parses stay in `review`.
+**Artist-only moves.** Genre is optional: a `move` needs a confident artist, and
+a file with no genre is filed directly under `<target_root>/<Artist>/` (genre
+folder omitted). The confidence gate is unchanged, so only reliably-identified
+artists are promoted; low-confidence heuristic parses stay in `review`. Pass
+`classify --require-genre` for the stricter behavior where a resolved genre is
+mandatory before moving.
 
 ```bash
-yt-id classify --allow-missing-genre
+yt-id classify                 # genre optional (default)
+yt-id classify --require-genre # only move when a genre resolves
 ```
 
 ### Configuration
@@ -362,8 +363,8 @@ yt-id plan --target "/Music Videos" --min-artist-files 2
   plan** (review/skip items don't count).
 - Artists **below** the threshold are flattened **one level up** — only the
   artist folder is dropped, genre grouping is kept: `<target>/<genre>/<file>`
-  (or `<target>/<file>` when there is no genre, e.g. under
-  `classify --allow-missing-genre`).
+  (or `<target>/<file>` when there is no genre, which is the default for a
+  confident artist-only file).
 - Artists **at or above** the threshold are unchanged
   (`<target>/<genre>/<Artist>/<file>`).
 - The default is `1`, which always creates the artist folder (original

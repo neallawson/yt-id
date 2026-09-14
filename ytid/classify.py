@@ -93,15 +93,20 @@ def decide(
     youtube_id: str,
     meta: dict | None,
     cfg: Config,
-    allow_missing_genre: bool = False,
+    allow_missing_genre: bool = True,
 ) -> Decision:
     now_reason = []
 
     # 1. Per-video override wins unconditionally.
     ov = cfg.overrides.videos.get(youtube_id)
     if ov is not None:
-        genre = ov.genre or cfg.overrides.artist_genre(ov.artist) or "other"
-        action = ov.action or ("move" if genre != "other" else "review")
+        genre = ov.genre or cfg.overrides.artist_genre(ov.artist)
+        if ov.action:
+            action = ov.action
+        elif ov.artist and (genre or allow_missing_genre):
+            action = "move"
+        else:
+            action = "review"
         return Decision(
             youtube_id, _clean(ov.artist), _clean(ov.title), genre, action, 1.0,
             "video override",
@@ -199,14 +204,16 @@ def list_decisions(
 def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     config_dir: str | Path | None = None,
-    allow_missing_genre: bool = False,
+    allow_missing_genre: bool = True,
     worklist_path: str | Path | None = worklist.WORKLIST_FILE,
 ) -> dict[str, int]:
     """Classify every known video and upsert into the decisions table.
 
-    When allow_missing_genre is True, a confidently-identified artist with no
-    genre is moved into `<target>/<Artist>/` (genre folder omitted) rather than
-    routed to review. Low-confidence artists still go to review.
+    Genre is optional by default: a confidently-identified artist (structured or
+    a filled override) with no genre is moved into `<target>/<Artist>/` (genre
+    folder omitted) rather than routed to review. Pass allow_missing_genre=False
+    to require a resolved genre before moving. Low-confidence artists always go
+    to review regardless.
 
     When a working-dir worklist (``ytid.yaml``) is present it is applied first:
     any ``unidentified`` entry that now carries a youtube_id is assigned to its

@@ -82,28 +82,52 @@ def test_structured_genre_normalized():
     assert d.action == "move"
 
 
-def test_confident_artist_no_genre_is_review_by_default():
+def test_confident_artist_no_genre_moves_by_default():
     cfg = make_config()
-    # Structured artist/track (confidence 0.9) but unknown genre.
+    # Structured artist/track (confidence 0.9) but unknown genre. Genre is
+    # optional by default, so a confident artist-only file moves to /Artist.
     meta = {"artist": "Unknown Band", "track": "A Song"}
     d = decide("bbbbbbbbbbb", meta, cfg)
-    assert d.genre is None
-    assert d.action == "review"
-
-
-def test_allow_missing_genre_moves_confident_artist_only():
-    cfg = make_config()
-    meta = {"artist": "Unknown Band", "track": "A Song"}
-    d = decide("bbbbbbbbbbb", meta, cfg, allow_missing_genre=True)
     assert d.genre is None
     assert d.action == "move"
     assert "artist-only (no genre)" in d.reason
 
 
-def test_allow_missing_genre_still_reviews_low_confidence():
+def test_require_genre_reviews_confident_artist_only():
+    cfg = make_config()
+    meta = {"artist": "Unknown Band", "track": "A Song"}
+    d = decide("bbbbbbbbbbb", meta, cfg, allow_missing_genre=False)
+    assert d.genre is None
+    assert d.action == "review"
+
+
+def test_low_confidence_still_reviews_even_with_genre_optional():
     cfg = make_config()
     # Heuristic title split -> confidence 0.5, below the move threshold.
     meta = {"title": "Unknown Artist - Some Song"}
-    d = decide("ccccccccccc", meta, cfg, allow_missing_genre=True)
+    d = decide("ccccccccccc", meta, cfg)
     assert d.genre is None
+    assert d.action == "review"
+
+
+def test_override_artist_no_genre_moves_by_default():
+    cfg = make_config()
+    # A filled ytid.yaml entry: artist/title but no genre and no explicit action.
+    cfg.overrides.videos["ddddddddddd"] = VideoOverride(
+        artist="Some Band", title="A Song"
+    )
+    d = decide("ddddddddddd", {"title": "irrelevant"}, cfg)
+    assert d.artist == "Some Band"
+    assert d.title == "A Song"
+    assert d.genre is None
+    assert d.action == "move"
+    assert d.reason == "video override"
+
+
+def test_override_artist_no_genre_reviews_when_genre_required():
+    cfg = make_config()
+    cfg.overrides.videos["ddddddddddd"] = VideoOverride(
+        artist="Some Band", title="A Song"
+    )
+    d = decide("ddddddddddd", {"title": "irrelevant"}, cfg, allow_missing_genre=False)
     assert d.action == "review"

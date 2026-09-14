@@ -126,7 +126,7 @@ def _cmd_fetch(args) -> int:
 def _cmd_classify(args) -> int:
     counts = classify_mod.classify_all(
         db_path=args.db, config_dir=args.config,
-        allow_missing_genre=args.allow_missing_genre,
+        allow_missing_genre=not args.require_genre,
         worklist_path=args.worklist,
     )
     print(
@@ -330,8 +330,16 @@ def build_parser() -> argparse.ArgumentParser:
              "the packaged defaults, resolved per file)",
     )
     p_classify.add_argument(
+        "--require-genre", dest="require_genre", action="store_true",
+        help="only move files that resolve to a genre; a confident artist with "
+             "no genre stays in review (default: genre optional -- artist-only "
+             "files move to /Artist)",
+    )
+    # Deprecated: genre is optional by default now, so this flag is a no-op kept
+    # for backward compatibility with existing scripts.
+    p_classify.add_argument(
         "--allow-missing-genre", dest="allow_missing_genre", action="store_true",
-        help="move confident artist-only files into /Artist (no genre folder)",
+        help=argparse.SUPPRESS,
     )
     p_classify.add_argument(
         "--worklist", default=worklist_mod.WORKLIST_FILE,

@@ -21,27 +21,14 @@ Lightweight tracker for bugs and enhancements to address later.
   - clear `duplicate` rows explicitly.
   Keep it dry-run by default (print what would be removed; require `--apply`).
 
-### Make genre optional everywhere (default artist-only moves)
-- **Reported:** 2026-09-08
-- **Severity:** low (enhancement; deferred by request)
-- **Goal:** treat genre as optional throughout so a confident artist with no
-  genre **moves** into `<target>/<Artist>/` by default, instead of landing in
-  review. Genre probing remains a separate future feature.
-- **Implementation notes (ready to pick up):**
-  - `decide()` / `classify_all()` in `ytid/classify.py`: flip
-    `allow_missing_genre` default to `True`.
-  - CLI `ytid/cli.py`: replace the `--allow-missing-genre` flag with an inverse
-    `--require-genre` (keep `--allow-missing-genre` as a hidden no-op for
-    backward compat); pass `allow_missing_genre=not args.require_genre`.
-  - **Also fix the per-video override branch** (`decide()` step 1): today it
-    forces `genre = ov.genre or artist_genre or "other"` and reviews when
-    `genre == "other"`. Change so an override with an artist but no genre
-    **moves** (genre stays `None`) under the same `allow_missing_genre` rule,
-    instead of being forced to `other`/review.
-  - Tests to update in `tests/test_classify.py`:
-    `test_confident_artist_no_genre_is_review_by_default` (new default is
-    `move`), and keep `test_allow_missing_genre_*` behavior via the new
-    `--require-genre` path. Low-confidence heuristic parses must still review.
+### Make genre optional everywhere (default artist-only moves) — DONE 2026-09-13
+- **Resolution:** genre is now optional by default. `decide()`/`classify_all()`
+  default `allow_missing_genre=True`, and the per-video override branch honors it
+  too (an override with an artist but no genre moves; genre stays `None` instead
+  of being forced to `other`). The `--allow-missing-genre` flag is replaced by an
+  inverse `--require-genre` (old flag kept as a hidden no-op). Low-confidence
+  heuristic parses still go to review. Covered by tests in
+  `tests/test_classify.py`.
 
 ### Per-folder genre taxonomy override in ytid.yaml
 - **Reported:** 2026-09-07
