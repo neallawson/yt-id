@@ -50,59 +50,63 @@ def _seed_move(db_path, yid, filename, artist, genre, title=None, reason="test")
 
 def test_plan_with_genre_nests_under_genre(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "aaaaaaaaaaa", "A.mp4", "Nazz", "rock")
+    _seed_move(db_path, "aaaaaaaaaaa", "A.mp4", "Nazz", "rock", title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path)
     pm = next(p for p in planned if p.youtube_id == "aaaaaaaaaaa")
     assert Path(pm.to_path) == (
-        tmp_path / "out" / "rock" / "Nazz" / "Nazz [aaaaaaaaaaa].mp4"
+        tmp_path / "out" / "rock" / "Nazz" / "Nazz - Song [aaaaaaaaaaa].mp4"
     )
 
 
 def test_plan_without_genre_places_directly_under_artist(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "bbbbbbbbbbb", "B.mp4", "Nazz", None)
+    _seed_move(db_path, "bbbbbbbbbbb", "B.mp4", "Nazz", None, title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path)
     pm = next(p for p in planned if p.youtube_id == "bbbbbbbbbbb")
-    assert Path(pm.to_path) == tmp_path / "out" / "Nazz" / "Nazz [bbbbbbbbbbb].mp4"
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "Nazz" / "Nazz - Song [bbbbbbbbbbb].mp4"
+    )
 
 
 def test_min_artist_files_flattens_sparse_artist_keeping_genre(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "sparse00001", "S.mp4", "Solo", "rock")
+    _seed_move(db_path, "sparse00001", "S.mp4", "Solo", "rock", title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
     pm = next(p for p in planned if p.youtube_id == "sparse00001")
     # Below threshold: artist folder dropped, genre grouping kept.
-    assert Path(pm.to_path) == tmp_path / "out" / "rock" / "Solo [sparse00001].mp4"
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "rock" / "Solo - Song [sparse00001].mp4"
+    )
 
 
 def test_min_artist_files_flattens_sparse_artist_to_root_without_genre(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "sparse00002", "S.mp4", "Solo", None)
+    _seed_move(db_path, "sparse00002", "S.mp4", "Solo", None, title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
     pm = next(p for p in planned if p.youtube_id == "sparse00002")
     # Below threshold and no genre: lands directly in the target root.
-    assert Path(pm.to_path) == tmp_path / "out" / "Solo [sparse00002].mp4"
+    assert Path(pm.to_path) == tmp_path / "out" / "Solo - Song [sparse00002].mp4"
 
 
 def test_min_artist_files_keeps_folder_when_threshold_met(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "many0000001", "A.mp4", "Nazz", "rock")
-    _seed_move(db_path, "many0000002", "B.mp4", "Nazz", "rock")
+    _seed_move(db_path, "many0000001", "A.mp4", "Nazz", "rock", title="Song")
+    _seed_move(db_path, "many0000002", "B.mp4", "Nazz", "rock", title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path, min_artist_files=2)
     for yid in ("many0000001", "many0000002"):
         pm = next(p for p in planned if p.youtube_id == yid)
         assert Path(pm.to_path) == (
-            tmp_path / "out" / "rock" / "Nazz" / f"Nazz [{yid}].mp4"
+            tmp_path / "out" / "rock" / "Nazz" / f"Nazz - Song [{yid}].mp4"
         )
 
 
 def test_min_artist_files_default_always_creates_folder(tmp_path):
     db_path = str(tmp_path / "t.db")
-    _seed_move(db_path, "single00001", "S.mp4", "Solo", "rock")
+    _seed_move(db_path, "single00001", "S.mp4", "Solo", "rock", title="Song")
     planned = build_plan(tmp_path / "out", db_path=db_path)
     pm = next(p for p in planned if p.youtube_id == "single00001")
     assert Path(pm.to_path) == (
-        tmp_path / "out" / "rock" / "Solo" / "Solo [single00001].mp4"
+        tmp_path / "out" / "rock" / "Solo" / "Solo - Song [single00001].mp4"
     )
 
 
@@ -450,6 +454,36 @@ def test_plan_omit_artist_keeps_artist_when_folder_is_flattened(tmp_path):
         tmp_path / "out" / "rock"
         / "Atomic Rooster - The Devils Answer [8R5El2HWMIo].webm"
     )
+
+
+def test_plan_move_without_title_is_not_placed(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "notitle0001", "A.mp4", "Nazz", "rock", title=None)
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "notitle0001")
+    assert pm.to_path is None
+
+
+def test_plan_title_only_lands_in_genre_folder(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "titleonly01", "Dust.webm", None, "western documentaries",
+        title="The Dust Bowl",
+    )
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "titleonly01")
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "western documentaries"
+        / "The Dust Bowl [titleonly01].webm"
+    )
+
+
+def test_plan_title_only_lands_at_target_root(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "titleonly02", "Dust.webm", None, None, title="The Dust Bowl")
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "titleonly02")
+    assert Path(pm.to_path) == tmp_path / "out" / "The Dust Bowl [titleonly02].webm"
 
 
 def test_plan_enhance_names_does_not_change_canonical_name(tmp_path):

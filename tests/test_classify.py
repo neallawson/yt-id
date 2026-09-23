@@ -90,7 +90,7 @@ def test_confident_artist_no_genre_moves_by_default():
     d = decide("bbbbbbbbbbb", meta, cfg)
     assert d.genre is None
     assert d.action == "move"
-    assert "artist-only (no genre)" in d.reason
+    assert "no genre" in d.reason
 
 
 def test_require_genre_reviews_confident_artist_only():
@@ -132,6 +132,45 @@ def test_override_artist_without_title_stays_in_review():
     assert d.title is None
     assert d.action == "review"
     assert d.reason == "video override"
+
+
+def test_override_title_only_moves():
+    cfg = make_config()
+    cfg.overrides.videos["titleonly01"] = VideoOverride(title="The Dust Bowl")
+    d = decide("titleonly01", None, cfg)
+    assert d.artist is None
+    assert d.title == "The Dust Bowl"
+    assert d.genre is None
+    assert d.action == "move"
+
+
+def test_override_title_only_reviews_when_artist_required():
+    cfg = make_config()
+    cfg.overrides.videos["titleonly01"] = VideoOverride(
+        title="The Dust Bowl", genre="other"
+    )
+    d = decide("titleonly01", None, cfg, allow_missing_artist=False)
+    assert d.action == "review"
+
+
+def test_override_explicit_move_without_title_stays_in_review():
+    cfg = make_config()
+    cfg.overrides.videos["notitle0001"] = VideoOverride(
+        artist="Some Band", action="move"
+    )
+    d = decide("notitle0001", None, cfg)
+    assert d.title is None
+    assert d.action == "review"
+
+
+def test_require_artist_reviews_when_artist_missing():
+    cfg = make_config()
+    # Confidence stays low without an artist, so this uses an override title
+    # to show the flag itself, not the confidence gate.
+    cfg.overrides.videos["titleonly01"] = VideoOverride(title="August")
+    d = decide("titleonly01", None, cfg, allow_missing_artist=False)
+    assert d.action == "review"
+    assert d.title == "August"
 
 
 def test_override_artist_no_genre_reviews_when_genre_required():

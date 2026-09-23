@@ -217,8 +217,9 @@ videos:
     file: "Atomic Rooster - The Devils Answer [8R5El2HWMIo].webm"
     artist: Atomic Rooster
     title: The Devils Answer
-    genre: rock          # optional -- a confident artist moves even without it
+    genre: rock          # optional
     action: move         # optional: move|review|skip
+                         # a title alone is enough to move; artist is optional
 ```
 For a file with no detectable ID, add the id yourself (the full filename is
 shown so you know which one it is):
@@ -240,7 +241,8 @@ Still need the low-level id fixer? `yt-id unresolved` / `yt-id resolve --id N
 Applies your config + heuristics and stores a decision per video.
 ```bash
 yt-id classify
-yt-id classify --require-genre         # stricter: only move files that resolve a genre
+yt-id classify --require-artist        # also require an artist
+yt-id classify --require-genre         # also require a genre
 yt-id classify --config ~/my-config    # use a specific config dir
 ```
 Each video gets an action: **move** (confident), **review** (needs a human), or

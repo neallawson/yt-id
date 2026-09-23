@@ -153,16 +153,17 @@ filename, and the reason it landed in review — so you can curate
 `config/overrides.yaml` (e.g. add an artist→genre mapping) and re-run
 `classify` to promote items to `move`.
 
-**Artist-only moves.** Genre is optional: a `move` needs a confident artist, and
-a file with no genre is filed directly under `<target_root>/<Artist>/` (genre
-folder omitted). The confidence gate is unchanged, so only reliably-identified
-artists are promoted; low-confidence heuristic parses stay in `review`. Pass
-`classify --require-genre` for the stricter behavior where a resolved genre is
-mandatory before moving.
+**Title-only moves.** A `move` needs a title. Artist and genre are optional.
+A file with no artist skips the `<Artist>/` folder, and a file with no genre
+skips the genre folder, so a title alone lands directly under `<target_root>/`.
+The confidence gate is unchanged, so low-confidence heuristic parses stay in
+`review` until you supply a title. Pass `--require-artist` or `--require-genre`
+when that field must be present before moving.
 
 ```bash
-yt-id classify                 # genre optional (default)
-yt-id classify --require-genre # only move when a genre resolves
+yt-id classify                   # title required; artist and genre optional
+yt-id classify --require-artist  # also require an artist
+yt-id classify --require-genre   # also require a genre
 ```
 
 ### Configuration
@@ -306,7 +307,7 @@ Artist - Title [id].ext
 ```
 
 The bracketed YouTube id and the original extension are always kept. A decision
-with an artist but no title uses `Artist [id].ext`. A title supplied in
+with no artist uses `Title [id].ext`. A title supplied in
 `ytid.yaml` is kept as typed (spaces, parentheses, and the rest); only
 filesystem-illegal characters are removed.
 

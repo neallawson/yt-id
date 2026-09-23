@@ -129,6 +129,7 @@ def _cmd_classify(args) -> int:
     counts = classify_mod.classify_all(
         db_path=args.db, config_dir=args.config,
         allow_missing_genre=not args.require_genre,
+        allow_missing_artist=not args.require_artist,
         worklist_path=args.worklist,
     )
     print(
@@ -403,9 +404,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_classify.add_argument(
         "--require-genre", dest="require_genre", action="store_true",
-        help="only move files that resolve to a genre; a confident artist with "
-             "no genre stays in review (default: genre optional -- artist-only "
-             "files move to /Artist)",
+        help="only move files that resolve to a genre (default: genre optional)",
+    )
+    p_classify.add_argument(
+        "--require-artist", dest="require_artist", action="store_true",
+        help="only move files that resolve to an artist (default: artist "
+             "optional; a title alone is enough)",
     )
     # Deprecated: genre is optional by default now, so this flag is a no-op kept
     # for backward compatibility with existing scripts.

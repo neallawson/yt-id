@@ -8,9 +8,9 @@ curate `config/overrides.yaml`. The decision model (v1, no MusicBrainz):
     elif artist recognizable in title:   use it; genre via override map
     else:                                review_required
 
-Genre in v1 comes from the artist override map or a structured `genre` field
-normalized to a coarse bucket. Anything without a confident genre is routed to
-review rather than guessed.
+A move requires a title. Artist and genre are optional unless the caller
+requires them. Genre comes from the artist override map or a structured
+`genre` field normalized to a coarse bucket.
 """
 
 from __future__ import annotations
@@ -94,23 +94,30 @@ def decide(
     meta: dict | None,
     cfg: Config,
     allow_missing_genre: bool = True,
+    allow_missing_artist: bool = True,
 ) -> Decision:
     now_reason = []
 
     # 1. Per-video override wins unconditionally.
     ov = cfg.overrides.videos.get(youtube_id)
     if ov is not None:
-        genre = ov.genre or cfg.overrides.artist_genre(ov.artist)
-        # A completed correction names both artist and title. An explicit
-        # action still wins; otherwise a missing title stays in review.
-        if ov.action:
+        artist = _clean(ov.artist)
+        title = _clean(ov.title)
+        genre = ov.genre or cfg.overrides.artist_genre(artist)
+        # skip/review are explicit. move still needs a title, and artist/genre
+        # only when the caller required them.
+        if ov.action in ("skip", "review"):
             action = ov.action
-        elif ov.artist and _clean(ov.title) and (genre or allow_missing_genre):
+        elif (
+            title
+            and (artist or allow_missing_artist)
+            and (genre or allow_missing_genre)
+        ):
             action = "move"
         else:
             action = "review"
         return Decision(
-            youtube_id, _clean(ov.artist), _clean(ov.title), genre, action, 1.0,
+            youtube_id, artist, title, genre, action, 1.0,
             "video override",
         )
 
@@ -155,23 +162,33 @@ def decide(
         if genre:
             now_reason.append("genre from structured field")
 
-    # Decide the action. A confident artist is required; genre is required too
-    # unless allow_missing_genre lets confident artist-only files land in /Artist.
-    if artist and confidence >= 0.6 and (genre or allow_missing_genre):
+    # A move needs a title and a confident identification. Artist and genre
+    # are optional unless the caller required them.
+    decision_title = _clean(track) or title
+    if (
+        decision_title
+        and confidence >= 0.6
+        and (artist or allow_missing_artist)
+        and (genre or allow_missing_genre)
+    ):
         action = "move"
+        if not artist:
+            now_reason.append("title-only (no artist)")
         if not genre:
-            now_reason.append("artist-only (no genre)")
+            now_reason.append("no genre")
     else:
         action = "review"
-        if not genre:
-            now_reason.append("no confident genre")
-        if not artist:
+        if not decision_title:
+            now_reason.append("no title")
+        if not artist and not allow_missing_artist:
             now_reason.append("no artist")
+        if not genre and not allow_missing_genre:
+            now_reason.append("no confident genre")
 
     return Decision(
         youtube_id,
         artist,
-        _clean(track) or title,
+        decision_title,
         genre,
         action,
         round(max(0.0, confidence), 2),
@@ -207,15 +224,16 @@ def classify_all(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     config_dir: str | Path | None = None,
     allow_missing_genre: bool = True,
+    allow_missing_artist: bool = True,
     worklist_path: str | Path | None = worklist.WORKLIST_FILE,
 ) -> dict[str, int]:
     """Classify every known video and upsert into the decisions table.
 
-    Genre is optional by default: a confidently-identified artist (structured or
-    a filled override) with no genre is moved into `<target>/<Artist>/` (genre
-    folder omitted) rather than routed to review. Pass allow_missing_genre=False
-    to require a resolved genre before moving. Low-confidence artists always go
-    to review regardless.
+    A move requires a title. Artist and genre are optional by default: a
+    title with no artist is filed directly under ``<target>/<genre>/`` (or
+    ``<target>/`` when genre is also absent). Pass allow_missing_genre=False
+    or allow_missing_artist=False to require that field before moving.
+    Low-confidence parses always go to review.
 
     When a working-dir worklist (``ytid.yaml``) is present it is applied first:
     any ``unidentified`` entry that now carries a youtube_id is assigned to its
@@ -237,7 +255,10 @@ def classify_all(
         ).fetchall()
         for row in rows:
             meta = json.loads(row["raw_json"]) if row["raw_json"] else None
-            d = decide(row["youtube_id"], meta, cfg, allow_missing_genre)
+            d = decide(
+                row["youtube_id"], meta, cfg,
+                allow_missing_genre, allow_missing_artist,
+            )
             conn.execute(
                 """
                 INSERT INTO decisions

@@ -1,20 +1,20 @@
 """Build a move manifest from decisions. Writes files; moves nothing.
 
-Only 'move' decisions become planned moves. Everything else (review/skip, or
-missing genre/artist) is emitted into the review report so no file is ever
-placed under a guessed folder.
+Only 'move' decisions with a title become planned moves. A row with no title
+is left unplaced. Artist and genre folders are omitted when those fields are
+empty.
 
 Target layout: <target_root>/<genre>/<Artist>/<filename>
-(when a move has no genre, the genre folder is omitted: <target_root>/<Artist>/...)
+No genre omits that folder. No artist omits the artist folder.
 
 Every destination filename is built from the decision, not the source name:
 
     Artist - Title [id].ext
 
-``--omit-artist-from-filename`` drops the artist prefix only when an artist
-folder is actually created, leaving ``Title [id].ext``. Flattened files (no
-artist folder) always keep the artist in the name. A video override keeps the
-supplied artist and title verbatim: ``--clean-names`` does not rewrite them.
+With no artist the name is ``Title [id].ext``. ``--omit-artist-from-filename``
+drops the artist prefix only when an artist folder is actually created.
+Flattened files that have an artist keep it in the name. A video override
+keeps the supplied title verbatim: ``--clean-names`` does not rewrite it.
 Other decisions are still scrubbed when ``--clean-names`` is set.
 
 Filesystem safety:
@@ -298,7 +298,7 @@ def uses_supplied_title(reason: str | None, title: str | None) -> bool:
 
 
 def destination_filename(
-    artist: str,
+    artist: str | None,
     title: str | None,
     youtube_id: str,
     original_name: str,
@@ -309,20 +309,20 @@ def destination_filename(
     """Build ``Artist - Title [id].ext`` from a decision.
 
     ``include_artist`` selects ``Title [id].ext`` when an artist folder already
-    carries the artist and the caller asked to omit the prefix. A blank title
-    keeps the artist in the name either way (``Artist [id].ext``).
+    carries the artist and the caller asked to omit the prefix, and also when
+    the decision has no artist. A title is required for a planned move.
 
     ``clean_names`` scrubs the constructed name. ``None`` applies only
     ``sanitize_component``, so spaces and punctuation the user kept survive.
     The bracketed YouTube id and the original extension are always present.
     """
     ext = Path(original_name).suffix
-    artist_text = artist.strip()
+    artist_text = artist.strip() if artist else ""
     title_text = title.strip() if title else ""
-    if include_artist or not title_text:
+    if artist_text and (include_artist or not title_text):
         label = f"{artist_text} - {title_text}" if title_text else artist_text
     else:
-        label = title_text
+        label = title_text or artist_text
 
     id_token = f" [{youtube_id}]"
     if clean_names:
@@ -338,7 +338,7 @@ def destination_filename(
 def _target_path(
     target_root: Path,
     genre: str | None,
-    artist: str,
+    artist: str | None,
     filename: str,
     clean_names: str | None = None,
     title: str | None = None,
@@ -354,10 +354,11 @@ def _target_path(
     dest = target_root
     if genre:
         dest = dest / sanitize_component(genre)
-    if include_artist_folder:
-        dest = dest / sanitize_component(artist)
+    artist_text = artist.strip() if artist else ""
+    if include_artist_folder and artist_text:
+        dest = dest / sanitize_component(artist_text)
     title_text = title.strip() if title else ""
-    include_artist = not (
+    include_artist = bool(artist_text) and not (
         omit_artist_from_filename and include_artist_folder and title_text
     )
     supplied = uses_supplied_title(reason, title_text)
@@ -399,9 +400,12 @@ def build_plan(
     ``<target>/<genre>/<Artist>/``, or directly in ``<target>/`` when there is
     no genre). The default of 1 always creates the artist folder.
 
-    Destination names are ``Artist - Title [id].ext``. When
-    omit_artist_from_filename is set, files that land in an artist folder use
-    ``Title [id].ext`` instead. Flattened files keep the artist in the name.
+    A planned move requires a title. Destination names are
+    ``Artist - Title [id].ext``, or ``Title [id].ext`` when the artist is
+    absent or omit_artist_from_filename drops the prefix inside an artist
+    folder. Flattened files that have an artist keep it in the name. An
+    artist folder is created only when the artist is present and the file
+    count meets min_artist_files.
     """
     target_root = Path(target_root).expanduser()
     planned: list[PlannedMove] = []
@@ -421,13 +425,14 @@ def build_plan(
         # Pre-count moved files per artist so sparse artists can be flattened.
         artist_counts: dict[str, int] = {}
         for r in rows:
-            if r["action"] == "move" and r["artist"]:
+            if r["action"] == "move" and (r["title"] or "").strip() and r["artist"]:
                 artist_counts[r["artist"]] = artist_counts.get(r["artist"], 0) + 1
 
         for r in rows:
             to_path: str | None = None
-            if r["action"] == "move" and r["artist"]:
-                include_artist_folder = (
+            title_text = (r["title"] or "").strip()
+            if r["action"] == "move" and title_text:
+                include_artist_folder = bool(r["artist"]) and (
                     artist_counts.get(r["artist"], 0) >= min_artist_files
                 )
                 dest = _target_path(
