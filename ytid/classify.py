@@ -101,9 +101,11 @@ def decide(
     ov = cfg.overrides.videos.get(youtube_id)
     if ov is not None:
         genre = ov.genre or cfg.overrides.artist_genre(ov.artist)
+        # A completed correction names both artist and title. An explicit
+        # action still wins; otherwise a missing title stays in review.
         if ov.action:
             action = ov.action
-        elif ov.artist and (genre or allow_missing_genre):
+        elif ov.artist and _clean(ov.title) and (genre or allow_missing_genre):
             action = "move"
         else:
             action = "review"

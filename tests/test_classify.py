@@ -124,6 +124,16 @@ def test_override_artist_no_genre_moves_by_default():
     assert d.reason == "video override"
 
 
+def test_override_artist_without_title_stays_in_review():
+    cfg = make_config()
+    cfg.overrides.videos["eeeeeeeeeee"] = VideoOverride(artist="Some Band")
+    d = decide("eeeeeeeeeee", None, cfg)
+    assert d.artist == "Some Band"
+    assert d.title is None
+    assert d.action == "review"
+    assert d.reason == "video override"
+
+
 def test_override_artist_no_genre_reviews_when_genre_required():
     cfg = make_config()
     cfg.overrides.videos["ddddddddddd"] = VideoOverride(

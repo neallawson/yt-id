@@ -290,6 +290,7 @@ def _cmd_plan(args) -> int:
     planned = plan_mod.build_plan(
         args.target, db_path=args.db, clean_names=args.clean_names,
         enhance_names=args.enhance_names, min_artist_files=args.min_artist_files,
+        omit_artist_from_filename=args.omit_artist_from_filename,
     )
     paths = plan_mod.write_manifest(planned, args.out)
     summary = plan_mod.summarize(planned)
@@ -486,16 +487,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--out", default="manifest", help="output prefix for .json/.csv")
     p_plan.add_argument(
         "--clean-names", dest="clean_names", choices=plan_mod.CLEAN_LEVELS, default=None,
-        help="clean destination filenames: 'conservative' (remove only "
-             "filesystem-illegal/control chars) or 'moderate' (also neutralize "
-             "shell-hostile chars). Default: off (preserve original names).",
+        help="scrub the destination name 'Artist - Title [id].ext': "
+             "'conservative' (filesystem-illegal/control chars) or 'moderate' "
+             "(also shell-hostile chars). Default: off. Skipped for a "
+             "user-supplied title.",
     )
     p_plan.add_argument(
         "--enhance-names", dest="enhance_names", action="store_true",
-        help="prepend the known artist/title to each destination filename "
-             "(Artist_Title_<rest-including-youtubeid>.ext), skipping any part "
-             "already present. Injected text is always sanitized; combine with "
-             "--clean-names to also scrub the original tail. Default: off.",
+        help="accepted for compatibility; destination names already include "
+             "artist and title, so this flag does not change them.",
+    )
+    p_plan.add_argument(
+        "--omit-artist-from-filename", dest="omit_artist_from_filename",
+        action="store_true",
+        help="when an artist folder is created, name the file 'Title [id].ext' "
+             "instead of 'Artist - Title [id].ext'. Files with no artist folder "
+             "still include the artist. Default: off.",
     )
     p_plan.add_argument(
         "--min-artist-files", dest="min_artist_files", type=int, default=1,

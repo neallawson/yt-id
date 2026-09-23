@@ -4,13 +4,24 @@ Only 'move' decisions become planned moves. Everything else (review/skip, or
 missing genre/artist) is emitted into the review report so no file is ever
 placed under a guessed folder.
 
-Target layout: <target_root>/<genre>/<Artist>/<original filename>
+Target layout: <target_root>/<genre>/<Artist>/<filename>
 (when a move has no genre, the genre folder is omitted: <target_root>/<Artist>/...)
+
+Every destination filename is built from the decision, not the source name:
+
+    Artist - Title [id].ext
+
+``--omit-artist-from-filename`` drops the artist prefix only when an artist
+folder is actually created, leaving ``Title [id].ext``. Flattened files (no
+artist folder) always keep the artist in the name. A video override keeps the
+supplied artist and title verbatim: ``--clean-names`` does not rewrite them.
+Other decisions are still scrubbed when ``--clean-names`` is set.
 
 Filesystem safety:
 - artist/genre path components are sanitized (slashes, control chars, reserved
   names, trailing dots/spaces).
-- the original filename is preserved so the YouTube ID stays embedded.
+- the filename gets that same baseline sanitizer. The YouTube id is always
+  appended in brackets, and the original extension is kept.
 - collisions append the YouTube ID to the stem rather than overwrite.
 """
 
@@ -165,7 +176,8 @@ def _clean_stem(stem: str, moderate: bool) -> str:
     cleaned = "".join(out)
     cleaned = re.sub(r"_+", "_", cleaned)
     cleaned = re.sub(r"-+", "-", cleaned)
-    cleaned = re.sub(r"(?:_-|-_)+", "_", cleaned)  # whitespace wins over seam
+    # A mixed run like "_-_" (from " - ") must collapse to one underscore.
+    cleaned = re.sub(r"(?:_-|-_)+_?", "_", cleaned)
     cleaned = cleaned.strip("_-")
     cleaned = cleaned.rstrip(" .")  # Windows: no trailing dot/space
     return cleaned
@@ -280,6 +292,49 @@ class PlannedMove:
     to_path: str | None
 
 
+def uses_supplied_title(reason: str | None, title: str | None) -> bool:
+    """True when a decision carries a user-supplied title from a video override."""
+    return reason == "video override" and bool(title and title.strip())
+
+
+def destination_filename(
+    artist: str,
+    title: str | None,
+    youtube_id: str,
+    original_name: str,
+    *,
+    include_artist: bool = True,
+    clean_names: str | None = None,
+) -> str:
+    """Build ``Artist - Title [id].ext`` from a decision.
+
+    ``include_artist`` selects ``Title [id].ext`` when an artist folder already
+    carries the artist and the caller asked to omit the prefix. A blank title
+    keeps the artist in the name either way (``Artist [id].ext``).
+
+    ``clean_names`` scrubs the constructed name. ``None`` applies only
+    ``sanitize_component``, so spaces and punctuation the user kept survive.
+    The bracketed YouTube id and the original extension are always present.
+    """
+    ext = Path(original_name).suffix
+    artist_text = artist.strip()
+    title_text = title.strip() if title else ""
+    if include_artist or not title_text:
+        label = f"{artist_text} - {title_text}" if title_text else artist_text
+    else:
+        label = title_text
+
+    id_token = f" [{youtube_id}]"
+    if clean_names:
+        return clean_filename(f"{label}{id_token}{ext}", clean_names)
+
+    stem = sanitize_component(label, fallback="Unknown")
+    room = 200 - len(id_token)
+    if len(stem) > room:
+        stem = stem[:room].rstrip(" .") or youtube_id
+    return f"{stem}{id_token}{ext}"
+
+
 def _target_path(
     target_root: Path,
     genre: str | None,
@@ -289,14 +344,29 @@ def _target_path(
     title: str | None = None,
     enhance_names: bool = False,
     include_artist_folder: bool = True,
+    youtube_id: str | None = None,
+    reason: str | None = None,
+    omit_artist_from_filename: bool = False,
 ) -> Path:
+    # enhance_names is accepted for compatibility. Artist and title are already
+    # part of every destination name, so the flag does not change the result.
+    del enhance_names
     dest = target_root
     if genre:
         dest = dest / sanitize_component(genre)
     if include_artist_folder:
         dest = dest / sanitize_component(artist)
-    if enhance_names:
-        fname = enhance_filename(filename, artist, title, clean_names)
+    title_text = title.strip() if title else ""
+    include_artist = not (
+        omit_artist_from_filename and include_artist_folder and title_text
+    )
+    supplied = uses_supplied_title(reason, title_text)
+    if youtube_id:
+        fname = destination_filename(
+            artist, title, youtube_id, filename,
+            include_artist=include_artist,
+            clean_names=None if supplied else clean_names,
+        )
     elif clean_names:
         fname = clean_filename(filename, clean_names)
     else:
@@ -319,6 +389,7 @@ def build_plan(
     clean_names: str | None = None,
     enhance_names: bool = False,
     min_artist_files: int = 1,
+    omit_artist_from_filename: bool = False,
 ) -> list[PlannedMove]:
     """Compute destination paths for every moved file.
 
@@ -327,6 +398,10 @@ def build_plan(
     (its files land in ``<target>/<genre>/`` instead of
     ``<target>/<genre>/<Artist>/``, or directly in ``<target>/`` when there is
     no genre). The default of 1 always creates the artist folder.
+
+    Destination names are ``Artist - Title [id].ext``. When
+    omit_artist_from_filename is set, files that land in an artist folder use
+    ``Title [id].ext`` instead. Flattened files keep the artist in the name.
     """
     target_root = Path(target_root).expanduser()
     planned: list[PlannedMove] = []
@@ -359,6 +434,8 @@ def build_plan(
                     target_root, r["genre"], r["artist"], r["filename"],
                     clean_names, title=r["title"], enhance_names=enhance_names,
                     include_artist_folder=include_artist_folder,
+                    youtube_id=r["youtube_id"], reason=r["reason"],
+                    omit_artist_from_filename=omit_artist_from_filename,
                 )
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))

@@ -297,12 +297,33 @@ that produced the moves:
 In short: **inline verification + rollback is the guarantee; `validate` is the
 after-the-fact audit.**
 
+### Destination filenames
+
+Every moved file is renamed from the decision, not from the source filename:
+
+```
+Artist - Title [id].ext
+```
+
+The bracketed YouTube id and the original extension are always kept. A decision
+with an artist but no title uses `Artist [id].ext`. A title supplied in
+`ytid.yaml` is kept as typed (spaces, parentheses, and the rest); only
+filesystem-illegal characters are removed.
+
+```bash
+yt-id plan --target "/Music Videos"
+# inside an artist folder, name the file "Title [id].ext" instead:
+yt-id plan --target "/Music Videos" --omit-artist-from-filename
+```
+
+`--omit-artist-from-filename` drops the artist prefix only when an `<Artist>/`
+folder is created. A file that was flattened (no artist folder) still uses
+`Artist - Title [id].ext`, so the artist is not lost.
+
 ### Filename cleaning (`plan --clean-names`)
 
-Source filenames often carry characters that trip other software. `plan` can
-tidy the *destination* filename while staying as close to the original as
-possible. It is **off by default** — omit the flag and names are preserved
-verbatim.
+`--clean-names` scrubs that constructed name. It is **off by default**. It does
+not run on a user-supplied title.
 
 ```bash
 yt-id plan --target "/Music Videos" --clean-names conservative
@@ -337,39 +358,8 @@ rewritten to `_and_` to keep the meaning (so `A & B` and `A&B` both become
 Example (`moderate`): `Song (Live) & More [abcdefghijk].mp4` →
 `Song_Live_and_More_[abcdefghijk].mp4`.
 
-### Filename enhancing (`plan --enhance-names`)
-
-Some source files carry no identifying text at all — the only clue is the
-YouTube ID. Since `classify` has already resolved the **artist** and **title**,
-`plan --enhance-names` can fold them back into the destination filename:
-
-```bash
-yt-id plan --target "/Music Videos" --enhance-names
-yt-id plan --target "/Music Videos" --enhance-names --clean-names moderate
-```
-
-Shape produced:
-
-```
-Artist_Title_<original-rest-including-youtubeid>.ext
-# ID-only source:
-[dQw4w9WgXcQ].mp4          ->  Nazz_Open_My_Eyes_[dQw4w9WgXcQ].mp4
-just-abcdefghijk.webm     ->  Nazz_Open_My_Eyes_just-abcdefghijk.webm
-```
-
-Behavior:
-
-- **Always prepends** the known artist/title to every moved file, but with a
-  **duplication guard**: each fragment is skipped when it is already present in
-  the name (tolerant, case-insensitive match), so `Open My Eyes [id].mp4`
-  becomes `Nazz_Open My Eyes [id].mp4`, not a doubled title. If both are already
-  present, the name is left unchanged.
-- **Partial data** is fine: whichever of artist/title is known gets added.
-- The **YouTube-ID token and extension** are always preserved.
-- Injected artist/title text is **always sanitized** (OS-safe) regardless of
-  `--clean-names`. Combine with `--clean-names` to also scrub the original tail;
-  on its own, `--enhance-names` leaves the existing tail untouched.
-- The transform is **idempotent** — re-running does not stack prefixes.
+`--enhance-names` is accepted and does not change the destination name. Artist
+and title are already part of `Artist - Title [id].ext`.
 
 ### Sparse-artist flattening (`plan --min-artist-files`)
 
