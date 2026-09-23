@@ -34,10 +34,10 @@ Lightweight tracker for bugs and enhancements to address later.
   empty guesses — even though the on-disk filename usually carries a clean
   `Artist - Title [id]` string.
 - **Proposed direction (revisit ASAP):**
-  1. **Filename as a first-class parse source.** Add a filename parser (reuse the
-     ID-token stripping in `plan._split_id`/`_id_span` to isolate the human part,
-     then split on the existing `_SEPARATORS`). Use it when structured/fetched
-     fields are absent, not just the fetched title.
+  1. **Filename as a first-class parse source.** Add a filename parser (strip the
+     bracket or dash-suffix id the way `scan.extract_youtube_id` does, then
+     split the human part on the existing `_SEPARATORS`). Use it when
+     structured/fetched fields are absent, not just the fetched title.
   2. **Normalize to the allowed charset.** Fold the manual cleanup into code:
      collapse to the allowed set, map `[]`->`()`, trim/quote — so a clean parse
      needs no hand editing.
@@ -78,6 +78,13 @@ Lightweight tracker for bugs and enhancements to address later.
   - clear `duplicate` rows explicitly.
   Keep it dry-run by default (print what would be removed; require `--apply`).
 
+### Title required, artist optional — DONE 2026-09-22
+- **Resolution:** a move requires a title. Artist and genre are optional unless
+  `classify --require-artist` or `--require-genre` is set. An override with no
+  title stays in review, even with `action: move`. A title with no artist is
+  filed with no `<Artist>/` folder. Covered by tests in `tests/test_classify.py`
+  and `tests/test_plan.py`.
+
 ### Make genre optional everywhere (default artist-only moves) — DONE 2026-09-13
 - **Resolution:** genre is now optional by default. `decide()`/`classify_all()`
   default `allow_missing_genre=True`, and the per-video override branch honors it
@@ -85,7 +92,8 @@ Lightweight tracker for bugs and enhancements to address later.
   of being forced to `other`). The `--allow-missing-genre` flag is replaced by an
   inverse `--require-genre` (old flag kept as a hidden no-op). Low-confidence
   heuristic parses still go to review. Covered by tests in
-  `tests/test_classify.py`.
+  `tests/test_classify.py`. Superseded in part by "Title required, artist
+  optional" above: an artist alone no longer moves.
 
 ### Per-folder genre taxonomy override in ytid.yaml
 - **Reported:** 2026-09-07

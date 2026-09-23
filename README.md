@@ -1,7 +1,7 @@
 # yt-id
 
-Identify the artist and genre for a folder of YouTube-sourced music videos and
-organize them into a `/<genre>/<Artist>/` tree.
+Identify the title, artist (optional) and genre (optional) for a folder of
+YouTube-sourced music videos and organize them into a `/<genre>/<Artist>/` tree.
 
 The stable key for every file is the 11-character YouTube ID embedded in the
 filename (e.g. `... [8R5El2HWMIo].webm`). The filename itself is treated as a
@@ -86,8 +86,8 @@ is both an auto-generated worklist and the authoritative source of your manual
 answers, so you edit one file instead of juggling `resolve` and `overrides.yaml`:
 
 - **`videos:`** — keyed by YouTube ID; a fetch that came back `unavailable`/
-  `error`, or a decision that landed in `review`. Supply `artist`/`title`
-  (`genre` optional, `action` = move|review|skip).
+  `error`, or a decision that landed in `review`. A `title` is what lets the
+  file move; `artist` and `genre` are optional (`action` = move|review|skip).
 - **`unidentified:`** — files with **no** detectable ID; the full filename is
   shown and you add the `youtube_id` (plus metadata). `classify` then promotes
   the row to `resolved`.
@@ -125,16 +125,17 @@ are never rewritten or removed, so anything you've already answered stays put.
 
 `classify` applies `ytid.yaml` first — assigning any supplied IDs and layering
 its per-video/artist overrides on top of `overrides.yaml` (the working-dir file
-wins), so a manually-supplied `title` flows straight through to `plan`.
+wins). A supplied title is the one `plan` uses, then it is shaped like every
+other destination name.
 
 ### Review bucket (manual handling)
 
 `classify` assigns every tracked video an `action` of `move`, `review`, or
-`skip`, but it **never auto-skips**: anything it cannot confidently route to a
-genre folder — non-music videos, unavailable/unfetched IDs, unknown artists — is
-sent to **`review`**, not dropped. `skip` only ever happens when *you* set it
-explicitly in `config/overrides.yaml`. Every file therefore stays tracked in the
-`decisions` table.
+`skip`, but it **never auto-skips**: anything without a confident title —
+non-music videos, unavailable/unfetched IDs, low-confidence parses — is sent to
+**`review`**, not dropped. `skip` only ever happens when *you* set it explicitly
+in `ytid.yaml` or `config/overrides.yaml`. Every file therefore stays tracked
+in the `decisions` table.
 
 Like the ID worklist, the review bucket is just a query:
 
@@ -149,8 +150,8 @@ yt-id review --action all
 ```
 
 Each entry shows the ID, decision, confidence, fetch status, derived artist,
-filename, and the reason it landed in review — so you can curate
-`config/overrides.yaml` (e.g. add an artist→genre mapping) and re-run
+filename, and the reason it landed in review — so you can curate `ytid.yaml`
+(or add an artist→genre mapping in `config/overrides.yaml`) and re-run
 `classify` to promote items to `move`.
 
 **Title-only moves.** A `move` needs a title. Artist and genre are optional.
@@ -351,8 +352,9 @@ yt-id plan --target "/Music Videos" --min-artist-files 2
   plan** (review/skip items don't count).
 - Artists **below** the threshold are flattened **one level up** — only the
   artist folder is dropped, genre grouping is kept: `<target>/<genre>/<file>`
-  (or `<target>/<file>` when there is no genre, which is the default for a
-  confident artist-only file).
+  (or `<target>/<file>` when there is no genre). A file with no artist never
+  gets an artist folder, so it already lands at that same level. The filename
+  keeps `Artist - Title [id]` whenever an artist is known.
 - Artists **at or above** the threshold are unchanged
   (`<target>/<genre>/<Artist>/<file>`).
 - The default is `1`, which always creates the artist folder (original
@@ -456,7 +458,7 @@ yt-id classify
 # 4. Produce a dry-run manifest (writes CSV + JSON, moves nothing)
 yt-id plan --target "/Music Videos" --out manifest
 
-# 5. Review manifest.csv, curate config/overrides.yaml, re-run classify/plan.
+# 5. Review manifest.csv, curate ytid.yaml, re-run classify/plan.
 #    When happy, apply:
 yt-id apply --manifest manifest.json
 
@@ -465,5 +467,6 @@ yt-id apply --manifest manifest.json --undo
 ```
 
 MusicBrainz-based genre suggestions are deferred to v2. In v1, genre comes from
-`config/overrides.yaml` (artist map) plus any structured `genre` field yt-dlp
-returns; everything else is routed to the review queue.
+`ytid.yaml`, `config/overrides.yaml` (artist map), or any structured `genre`
+field yt-dlp returns. A missing genre does not block a move when the title is
+confident.
