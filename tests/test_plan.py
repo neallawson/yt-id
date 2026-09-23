@@ -3,15 +3,14 @@ from pathlib import Path
 from ytid import db
 from ytid.plan import (
     build_plan,
-    clean_filename,
     destination_filename,
-    enhance_filename,
     sanitize_component,
+    strict_names,
 )
 
 
 def test_illegal_chars_replaced():
-    assert sanitize_component("AC/DC") == "AC_DC"
+    assert sanitize_component("AC/DC") == "AC-DC"
 
 
 def test_trailing_dot_and_space_stripped():
@@ -30,7 +29,41 @@ def test_normal_unicode_preserved():
     assert sanitize_component("Motörhead") == "Motörhead"
 
 
-def _seed_move(db_path, yid, filename, artist, genre, title=None, reason="test"):
+def test_trailing_illegal_char_is_dropped():
+    assert sanitize_component("Hello?") == "Hello"
+
+
+def test_illegal_char_between_words_becomes_hyphen():
+    assert sanitize_component("Foo:Bar") == "Foo-Bar"
+
+
+def test_strict_names_keeps_words_and_drops_parens():
+    assert strict_names("The Devils Answer (Live)") == "The Devils Answer Live"
+    assert strict_names("Hall & Oates") == "Hall and Oates"
+    assert strict_names("R&B") == "R and B"
+
+
+def test_sanitize_keeps_identifying_punctuation():
+    assert sanitize_component("Good Lovin' (Live) & More") == "Good Lovin' (Live) & More"
+    assert sanitize_component("Song [demo]") == "Song [demo]"
+
+
+def test_sanitize_collapses_an_illegal_run_to_one_hyphen():
+    assert sanitize_component("AC//DC") == "AC-DC"
+
+
+def test_sanitize_collapses_whitespace():
+    assert sanitize_component("The   Band") == "The Band"
+
+
+def test_strict_names_drops_apostrophe_and_comma():
+    assert strict_names("Good Lovin'") == "Good Lovin"
+    assert strict_names("Atlanta, Georgia") == "Atlanta Georgia"
+
+
+def _seed_move(
+    db_path, yid, filename, artist, genre, title=None, reason="test", action="move",
+):
     now = "2026-01-01T00:00:00+00:00"
     ext = Path(filename).suffix or ".mp4"
     with db.session(db_path) as conn:
@@ -43,8 +76,8 @@ def _seed_move(db_path, yid, filename, artist, genre, title=None, reason="test")
         conn.execute(
             "INSERT INTO decisions (youtube_id, artist, title, genre, "
             "target_path, action, confidence, reason, decided_at) "
-            "VALUES (?, ?, ?, ?, NULL, 'move', 0.9, ?, ?)",
-            (yid, artist, title, genre, reason, now),
+            "VALUES (?, ?, ?, ?, NULL, ?, 0.9, ?, ?)",
+            (yid, artist, title, genre, action, reason, now),
         )
 
 
@@ -110,251 +143,6 @@ def test_min_artist_files_default_always_creates_folder(tmp_path):
     )
 
 
-# --- clean_filename: level=None is a no-op ---------------------------------
-
-
-def test_clean_none_is_passthrough():
-    assert clean_filename("Weird: Name?.mp4", None) == "Weird: Name?.mp4"
-
-
-# --- clean_filename: conservative ------------------------------------------
-
-
-def test_clean_seam_dash_when_removal_concatenates():
-    assert clean_filename("Foo:Bar.mp4", "conservative") == "Foo-Bar.mp4"
-
-
-def test_clean_illegal_slash_becomes_seam():
-    assert clean_filename("AC/DC.mp4", "conservative") == "AC-DC.mp4"
-
-
-def test_clean_trailing_bad_char_dropped_no_seam():
-    assert clean_filename("What?.mp4", "conservative") == "What.mp4"
-
-
-def test_clean_whitespace_becomes_single_underscore():
-    assert clean_filename("a  b.mp4", "conservative") == "a_b.mp4"
-
-
-def test_clean_conservative_keeps_parens_and_amp():
-    assert (
-        clean_filename("Song (Live) & More.mp4", "conservative")
-        == "Song_(Live)_&_More.mp4"
-    )
-
-
-def test_clean_preserves_unicode_letters():
-    assert clean_filename("Motörhead.mp4", "conservative") == "Motörhead.mp4"
-
-
-def test_clean_reserved_name_is_prefixed():
-    assert clean_filename("CON.mp4", "conservative") == "_CON.mp4"
-
-
-def test_clean_empty_result_falls_back_to_unknown():
-    assert clean_filename("???.mp4", "conservative") == "Unknown.mp4"
-
-
-# --- clean_filename: moderate ----------------------------------------------
-
-
-def test_clean_collapses_spaced_hyphen_to_single_underscore():
-    assert (
-        clean_filename("Nazz - Open My Eyes [abcdefghijk].mp4", "moderate")
-        == "Nazz_Open_My_Eyes_[abcdefghijk].mp4"
-    )
-
-
-def test_clean_moderate_strips_shell_hostile_chars():
-    assert (
-        clean_filename("Song (Live) & More.mp4", "moderate")
-        == "Song_Live_and_More.mp4"
-    )
-
-
-def test_clean_moderate_ampersand_becomes_and():
-    assert clean_filename("A&B.mp4", "moderate") == "A_and_B.mp4"
-
-
-def test_clean_moderate_ampersand_with_spaces_becomes_and():
-    assert clean_filename("Salt & Pepper.mp4", "moderate") == "Salt_and_Pepper.mp4"
-
-
-def test_clean_conservative_keeps_literal_ampersand():
-    assert clean_filename("A&B.mp4", "conservative") == "A&B.mp4"
-
-
-def test_clean_moderate_drops_comma_before_space():
-    assert (
-        clean_filename("Flowers De Moon, Olivia Price.mp4", "moderate")
-        == "Flowers_De_Moon_Olivia_Price.mp4"
-    )
-
-
-def test_clean_moderate_comma_seam_without_space():
-    assert clean_filename("A,B.mp4", "moderate") == "A-B.mp4"
-
-
-def test_clean_moderate_removes_fullwidth_and_ideographic_commas():
-    assert clean_filename("A\uff0cB.mp4", "moderate") == "A-B.mp4"
-    assert clean_filename("A\u3001B.mp4", "moderate") == "A-B.mp4"
-
-
-def test_clean_conservative_keeps_literal_comma():
-    assert clean_filename("A,B.mp4", "conservative") == "A,B.mp4"
-
-
-# --- clean_filename: ID + extension preservation ---------------------------
-
-
-def test_clean_preserves_bracket_id_token():
-    assert (
-        clean_filename("My: Song [abcdefghijk].mp4", "conservative")
-        == "My_Song_[abcdefghijk].mp4"
-    )
-
-
-def test_clean_preserves_dash_suffix_id_token():
-    assert (
-        clean_filename("Title: X-abcdefghijk.webm", "conservative")
-        == "Title_X-abcdefghijk.webm"
-    )
-
-
-def test_clean_is_idempotent():
-    once = clean_filename("Song (Live) & More [abcdefghijk].mkv", "moderate")
-    assert clean_filename(once, "moderate") == once
-
-
-def test_clean_preserves_id_with_separator_run():
-    # regression: id containing "_-" must not be collapsed to "_"
-    assert (
-        clean_filename("1776 [EX_-1xbYx_E].webm", "moderate")
-        == "1776_[EX_-1xbYx_E].webm"
-    )
-
-
-def test_clean_preserves_bracket_id_with_leading_underscore():
-    assert (
-        clean_filename("9-9 [_yN5ZboIT-o].mp4", "moderate") == "9-9_[_yN5ZboIT-o].mp4"
-    )
-
-
-def test_clean_no_double_dash_when_seam_meets_dash_id():
-    # regression: removed ')' seam must not stack with the dash-suffix ID's dash
-    assert (
-        clean_filename(
-            "35mm _ Moon Tower (Live at The Nave)-r2fJKaX_FoE.mkv", "moderate"
-        )
-        == "35mm_Moon_Tower_Live_at_The_Nave-r2fJKaX_FoE.mkv"
-    )
-
-
-# --- plan integration: clean_names flows into to_path ----------------------
-
-
-def test_plan_clean_names_scrubs_canonical_name(tmp_path):
-    db_path = str(tmp_path / "t.db")
-    _seed_move(
-        db_path, "ccccccccccc", "Bad: Name?.mp4", "AC/DC", None,
-        title="Hells & Bells",
-    )
-    planned = build_plan(tmp_path / "out", db_path=db_path, clean_names="moderate")
-    pm = next(p for p in planned if p.youtube_id == "ccccccccccc")
-    assert Path(pm.to_path).name == "AC-DC_Hells_and_Bells_[ccccccccccc].mp4"
-
-
-def test_plan_default_uses_artist_title_and_id(tmp_path):
-    db_path = str(tmp_path / "t.db")
-    _seed_move(
-        db_path, "ddddddddddd", "Bad: Name?.mp4", "Nazz", None,
-        title="Open My Eyes",
-    )
-    planned = build_plan(tmp_path / "out", db_path=db_path)
-    pm = next(p for p in planned if p.youtube_id == "ddddddddddd")
-    assert Path(pm.to_path).name == "Nazz - Open My Eyes [ddddddddddd].mp4"
-
-
-# --- enhance_filename: prepend artist/title --------------------------------
-
-
-def test_enhance_id_only_bracket_prepends_both():
-    assert (
-        enhance_filename("[dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
-        == "Nazz_Open_My_Eyes_[dQw4w9WgXcQ].mp4"
-    )
-
-
-def test_enhance_id_only_dash_keeps_suffix_id():
-    assert (
-        enhance_filename("just-abcdefghijk.webm", "Nazz", "Open My Eyes", None)
-        == "Nazz_Open_My_Eyes_just-abcdefghijk.webm"
-    )
-
-
-def test_enhance_skips_title_already_present():
-    assert (
-        enhance_filename("Open My Eyes [dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
-        == "Nazz_Open My Eyes [dQw4w9WgXcQ].mp4"
-    )
-
-
-def test_enhance_both_present_returns_base_unchanged():
-    name = "Nazz - Open My Eyes [dQw4w9WgXcQ].mp4"
-    assert enhance_filename(name, "Nazz", "Open My Eyes", None) == name
-
-
-def test_enhance_dedups_when_artist_equals_title():
-    assert (
-        enhance_filename("[dQw4w9WgXcQ].mp4", "Foo", "Foo", None)
-        == "Foo_[dQw4w9WgXcQ].mp4"
-    )
-
-
-def test_enhance_missing_artist_uses_title_only():
-    assert (
-        enhance_filename("[dQw4w9WgXcQ].mp4", None, "Solo Track", None)
-        == "Solo_Track_[dQw4w9WgXcQ].mp4"
-    )
-
-
-def test_enhance_combined_with_moderate_clean():
-    assert (
-        enhance_filename("A&B [dQw4w9WgXcQ].mp4", "AC/DC", "Hells & Bells", "moderate")
-        == "AC-DC_Hells_and_Bells_A_and_B_[dQw4w9WgXcQ].mp4"
-    )
-
-
-def test_enhance_is_idempotent():
-    once = enhance_filename("[dQw4w9WgXcQ].mp4", "Nazz", "Open My Eyes", None)
-    assert enhance_filename(once, "Nazz", "Open My Eyes", None) == once
-
-
-def test_enhance_preserves_id_with_separator_run():
-    # regression: id "_-" run survives enhance + moderate clean
-    assert (
-        enhance_filename(
-            "1776 [EX_-1xbYx_E].webm", "Hope Of The States", "1776", "moderate"
-        )
-        == "Hope_Of_The_States_1776_[EX_-1xbYx_E].webm"
-    )
-
-
-def test_enhance_no_double_dash_when_seam_meets_dash_id():
-    # regression: the Far Caspian case from the manifest
-    assert (
-        enhance_filename(
-            "35mm _ Moon Tower (Live at The Nave)-r2fJKaX_FoE.mkv",
-            "Far Caspian",
-            "35mm / Moon Tower (Live at The Nave)",
-            "moderate",
-        )
-        == "Far_Caspian_35mm_Moon_Tower_Live_at_The_Nave-r2fJKaX_FoE.mkv"
-    )
-
-
-# --- plan integration: enhance_names flows into to_path --------------------
-
 
 # --- supplied title: video override is authoritative ---------------------
 
@@ -379,10 +167,63 @@ def test_destination_filename_can_omit_artist_when_title_present():
     )
 
 
-def test_destination_filename_sanitizes_illegal_chars_only():
+def test_destination_filename_drops_illegal_chars():
     assert (
         destination_filename("Nazz", "Hello: World?", "abcdefghijk", "x.mp4")
-        == "Nazz - Hello_ World_ [abcdefghijk].mp4"
+        == "Nazz - Hello World [abcdefghijk].mp4"
+    )
+
+
+def test_destination_filename_strict_then_spaces():
+    assert (
+        destination_filename(
+            "Atomic Rooster", "The Devils Answer (Live)", "8R5El2HWMIo",
+            "messy.webm", strict=True, spaces_to_underscores=True,
+        )
+        == "Atomic_Rooster_-_The_Devils_Answer_Live_[8R5El2HWMIo].webm"
+    )
+
+
+def test_destination_filename_spaces_only_keeps_parens():
+    assert (
+        destination_filename(
+            "Atomic Rooster", "The Devils Answer (Live)", "8R5El2HWMIo",
+            "messy.webm", spaces_to_underscores=True,
+        )
+        == "Atomic_Rooster_-_The_Devils_Answer_(Live)_[8R5El2HWMIo].webm"
+    )
+
+
+def test_destination_filename_strict_only_keeps_spaces():
+    assert (
+        destination_filename(
+            "Atomic Rooster", "The Devils Answer (Live)", "8R5El2HWMIo",
+            "messy.webm", strict=True,
+        )
+        == "Atomic Rooster - The Devils Answer Live [8R5El2HWMIo].webm"
+    )
+
+
+def test_destination_filename_empty_title_falls_back_to_unknown():
+    assert (
+        destination_filename(None, "???", "abcdefghijk", "x.mp4")
+        == "Unknown [abcdefghijk].mp4"
+    )
+
+
+def test_destination_filename_caps_stem_and_keeps_id():
+    name = destination_filename("Nazz", "A" * 300, "abcdefghijk", "x.mp4")
+    assert name.endswith(" [abcdefghijk].mp4")
+    assert len(Path(name).stem) <= 200
+
+
+def test_destination_filename_leaves_id_underscores_alone():
+    assert (
+        destination_filename(
+            "Hope Of The States", "1776", "EX_-1xbYx_E", "x.webm",
+            spaces_to_underscores=True,
+        )
+        == "Hope_Of_The_States_-_1776_[EX_-1xbYx_E].webm"
     )
 
 
@@ -394,10 +235,7 @@ def test_plan_supplied_title_renames_under_artist(tmp_path):
         "Atomic Rooster", "rock", title="The Devils Answer",
         reason="video override",
     )
-    planned = build_plan(
-        tmp_path / "out", db_path=db_path,
-        clean_names="moderate", enhance_names=True,
-    )
+    planned = build_plan(tmp_path / "out", db_path=db_path, strict_names=True)
     pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
     assert Path(pm.to_path) == (
         tmp_path / "out" / "rock" / "Atomic Rooster"
@@ -412,9 +250,7 @@ def test_plan_supplied_title_keeps_parens_that_moderate_would_strip(tmp_path):
         "Atomic Rooster", None, title="Breakthrough Take (1971)",
         reason="video override",
     )
-    planned = build_plan(
-        tmp_path / "out", db_path=db_path, clean_names="moderate",
-    )
+    planned = build_plan(tmp_path / "out", db_path=db_path)
     pm = next(p for p in planned if p.youtube_id == "mKWy9LhRjpE")
     assert Path(pm.to_path) == (
         tmp_path / "out" / "Atomic Rooster"
@@ -486,12 +322,89 @@ def test_plan_title_only_lands_at_target_root(tmp_path):
     assert Path(pm.to_path) == tmp_path / "out" / "The Dust Bowl [titleonly02].webm"
 
 
-def test_plan_enhance_names_does_not_change_canonical_name(tmp_path):
+def test_plan_spaces_only_shapes_folders_and_keeps_parens(tmp_path):
     db_path = str(tmp_path / "t.db")
     _seed_move(
-        db_path, "eeeeeeeeeee", "[dQw4w9WgXcQ].mp4", "Nazz", None,
-        title="Open My Eyes",
+        db_path, "8R5El2HWMIo", "original.webm",
+        "Atomic Rooster", "western documentaries",
+        title="The Devils Answer (Live)",
     )
-    planned = build_plan(tmp_path / "out", db_path=db_path, enhance_names=True)
-    pm = next(p for p in planned if p.youtube_id == "eeeeeeeeeee")
-    assert Path(pm.to_path).name == "Nazz - Open My Eyes [eeeeeeeeeee].mp4"
+    planned = build_plan(
+        tmp_path / "out", db_path=db_path, spaces_to_underscores=True,
+    )
+    pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "western_documentaries" / "Atomic_Rooster"
+        / "Atomic_Rooster_-_The_Devils_Answer_(Live)_[8R5El2HWMIo].webm"
+    )
+
+
+def test_plan_strict_only_shapes_folders_and_keeps_spaces(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "8R5El2HWMIo", "original.webm",
+        "Hall & Oates", "rock", title="The Devils Answer (Live)",
+    )
+    planned = build_plan(tmp_path / "out", db_path=db_path, strict_names=True)
+    pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "rock" / "Hall and Oates"
+        / "Hall and Oates - The Devils Answer Live [8R5El2HWMIo].webm"
+    )
+
+
+def test_plan_artist_folder_uses_os_hyphen_seam(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "abcdefghijk", "original.mp4",
+        "AC/DC", "rock", title="Highway to Hell",
+    )
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "abcdefghijk")
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "rock" / "AC-DC"
+        / "AC-DC - Highway to Hell [abcdefghijk].mp4"
+    )
+
+
+def test_plan_review_row_is_not_placed(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "review00001", "A.mp4", "Nazz", "rock",
+        title="Song", action="review",
+    )
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "review00001")
+    assert pm.action == "review"
+    assert pm.to_path is None
+
+
+def test_plan_collision_appends_id_again(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(db_path, "aaaaaaaaaaa", "A.mp4", "Nazz", "rock", title="Song")
+    occupied = tmp_path / "out" / "rock" / "Nazz"
+    occupied.mkdir(parents=True)
+    (occupied / "Nazz - Song [aaaaaaaaaaa].mp4").write_bytes(b"x")
+    planned = build_plan(tmp_path / "out", db_path=db_path)
+    pm = next(p for p in planned if p.youtube_id == "aaaaaaaaaaa")
+    assert Path(pm.to_path) == (
+        occupied / "Nazz - Song [aaaaaaaaaaa] [aaaaaaaaaaa].mp4"
+    )
+
+
+def test_plan_strict_and_spaces_apply_to_folder_and_override(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    _seed_move(
+        db_path, "8R5El2HWMIo", "original.webm",
+        "Hall & Oates", "rock", title="The Devils Answer (Live)",
+        reason="video override",
+    )
+    planned = build_plan(
+        tmp_path / "out", db_path=db_path,
+        strict_names=True, spaces_to_underscores=True,
+    )
+    pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
+    assert Path(pm.to_path) == (
+        tmp_path / "out" / "rock" / "Hall_and_Oates"
+        / "Hall_and_Oates_-_The_Devils_Answer_Live_[8R5El2HWMIo].webm"
+    )

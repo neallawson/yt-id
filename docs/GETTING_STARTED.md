@@ -262,10 +262,8 @@ Computes destination paths. **Nothing is moved.**
 ```bash
 yt-id plan --target "/Music Videos"
 # destination names are "Artist - Title [id].ext"
-# drop the artist prefix when an artist folder exists:
 yt-id plan --target "/Music Videos" --omit-artist-from-filename
-# only make an <Artist>/ folder once an artist has >= 2 files (sparse ones
-# stay in <target>/<genre>/, and the filename keeps "Artist - Title [id]"):
+yt-id plan --target "/Music Videos" --strict-names --spaces-to-underscores
 yt-id plan --target "/Music Videos" --min-artist-files 2
 ```
 

@@ -289,9 +289,11 @@ def _cmd_review(args) -> int:
 
 def _cmd_plan(args) -> int:
     planned = plan_mod.build_plan(
-        args.target, db_path=args.db, clean_names=args.clean_names,
-        enhance_names=args.enhance_names, min_artist_files=args.min_artist_files,
+        args.target, db_path=args.db,
+        min_artist_files=args.min_artist_files,
         omit_artist_from_filename=args.omit_artist_from_filename,
+        strict_names=args.strict_names,
+        spaces_to_underscores=args.spaces_to_underscores,
     )
     paths = plan_mod.write_manifest(planned, args.out)
     summary = plan_mod.summarize(planned)
@@ -490,16 +492,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--target", required=True, help="target root, e.g. '/Music Videos'")
     p_plan.add_argument("--out", default="manifest", help="output prefix for .json/.csv")
     p_plan.add_argument(
-        "--clean-names", dest="clean_names", choices=plan_mod.CLEAN_LEVELS, default=None,
-        help="scrub the destination name 'Artist - Title [id].ext': "
-             "'conservative' (filesystem-illegal/control chars) or 'moderate' "
-             "(also shell-hostile chars). Default: off. Skipped for a "
-             "user-supplied title.",
+        "--strict-names", dest="strict_names", action="store_true",
+        help="also drop shell-hostile punctuation from folders and filenames "
+             "(' \" ` ; $ ( ) { } ! # @ ~ %% and commas). '&' becomes ' and '. "
+             "The bracketed YouTube id is kept. Default: off.",
     )
     p_plan.add_argument(
-        "--enhance-names", dest="enhance_names", action="store_true",
-        help="accepted for compatibility; destination names already include "
-             "artist and title, so this flag does not change them.",
+        "--spaces-to-underscores", dest="spaces_to_underscores", action="store_true",
+        help="replace spaces with underscores in folders and filenames, "
+             "including the space before [id]. Default: off.",
     )
     p_plan.add_argument(
         "--omit-artist-from-filename", dest="omit_artist_from_filename",

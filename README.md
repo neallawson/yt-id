@@ -307,60 +307,34 @@ Artist - Title [id].ext
 ```
 
 The bracketed YouTube id and the original extension are always kept. A decision
-with no artist uses `Title [id].ext`. A title supplied in
-`ytid.yaml` is kept as typed (spaces, parentheses, and the rest); only
-filesystem-illegal characters are removed.
+with no artist uses `Title [id].ext`. The same shaping runs on every folder
+and every filename, including a title typed in `ytid.yaml`.
+
+Every name goes through three steps, in order:
+
+1. **OS-safe, always.** Drop characters that are illegal on Windows
+   (`< > : " / \ | ? *` and controls). If that would glue two words together,
+   leave one hyphen (`AC/DC` → `AC-DC`, `Hello?` → `Hello`). Spaces,
+   parentheses, `&`, and apostrophes stay. Reserved names (`CON`, `NUL`, …)
+   become `Unknown`.
+2. **`--strict-names`, off by default.** Also drop shell-hostile punctuation
+   (quotes, parentheses, braces, `! # @ ~ % ; $`, and commas). `&` becomes
+   ` and `, so `The Devils Answer (Live)` becomes `The Devils Answer Live`.
+3. **`--spaces-to-underscores`, off by default.** Replace each space with `_`,
+   including the space before `[id]`.
+
+The YouTube id is appended after those steps, so characters inside the id are
+never rewritten.
 
 ```bash
 yt-id plan --target "/Music Videos"
-# inside an artist folder, name the file "Title [id].ext" instead:
 yt-id plan --target "/Music Videos" --omit-artist-from-filename
+yt-id plan --target "/Music Videos" --strict-names --spaces-to-underscores
 ```
 
 `--omit-artist-from-filename` drops the artist prefix only when an `<Artist>/`
 folder is created. A file that was flattened (no artist folder) still uses
 `Artist - Title [id].ext`, so the artist is not lost.
-
-### Filename cleaning (`plan --clean-names`)
-
-`--clean-names` scrubs that constructed name. It is **off by default**. It does
-not run on a user-supplied title.
-
-```bash
-yt-id plan --target "/Music Videos" --clean-names conservative
-yt-id plan --target "/Music Videos" --clean-names moderate
-```
-
-Both levels share the same rules:
-
-- The **YouTube-ID token** (`[id]` or trailing `-id`) and the **file extension**
-  are preserved verbatim.
-- **Whitespace runs** collapse to a single `_`.
-- **Removed characters** collapse to nothing, except a single `-` seam is
-  inserted when removal would otherwise concatenate two kept characters
-  (`AC/DC` → `AC-DC`, but a trailing `What?` → `What`).
-- Repeated separators collapse; leading/trailing separators are trimmed.
-- OS-safety tail: trailing dots/spaces stripped, reserved names (`CON`, `NUL`,
-  …) prefixed with `_`, stem capped at 200 chars. Empty results fall back to the
-  YouTube ID (or `Unknown`). The transform is **idempotent**.
-
-Levels differ only in *which* characters are treated as bad:
-
-| Level          | Removes                                                        |
-|----------------|---------------------------------------------------------------|
-| `conservative` | Filesystem-illegal + control chars: `< > : " / \ \| ? *`      |
-| `moderate`     | The above **plus** shell-hostile chars: `' " \` ; $ ( ) { } ! # @ ~ %` and commas (ASCII `,`, fullwidth `，`, ideographic `、`) |
-
-Under `moderate`, `&` is a special case: instead of being dropped it is
-rewritten to `_and_` to keep the meaning (so `A & B` and `A&B` both become
-`A_and_B`). Note this is a blunt substitution — `R&B` becomes `R_and_B`.
-`conservative` leaves a literal `&` untouched.
-
-Example (`moderate`): `Song (Live) & More [abcdefghijk].mp4` →
-`Song_Live_and_More_[abcdefghijk].mp4`.
-
-`--enhance-names` is accepted and does not change the destination name. Artist
-and title are already part of `Artist - Title [id].ext`.
 
 ### Sparse-artist flattening (`plan --min-artist-files`)
 

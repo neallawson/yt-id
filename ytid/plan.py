@@ -13,16 +13,12 @@ Every destination filename is built from the decision, not the source name:
 
 With no artist the name is ``Title [id].ext``. ``--omit-artist-from-filename``
 drops the artist prefix only when an artist folder is actually created.
-Flattened files that have an artist keep it in the name. A video override
-keeps the supplied title verbatim: ``--clean-names`` does not rewrite it.
-Other decisions are still scrubbed when ``--clean-names`` is set.
+Flattened files that have an artist keep it in the name.
 
-Filesystem safety:
-- artist/genre path components are sanitized (slashes, control chars, reserved
-  names, trailing dots/spaces).
-- the filename gets that same baseline sanitizer. The YouTube id is always
-  appended in brackets, and the original extension is kept.
-- collisions append the YouTube ID to the stem rather than overwrite.
+Every genre folder, artist folder, and filename is shaped the same way:
+OS-safe characters first, then ``--strict-names`` if set, then
+``--spaces-to-underscores`` if set. The bracketed YouTube id is appended
+after that, so it is never rewritten. Collisions append the id again.
 """
 
 from __future__ import annotations
@@ -34,249 +30,81 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import db
-from .scan import _BRACKET_RE, _DASH_RE, extract_youtube_id
 
-CLEAN_LEVELS = ("conservative", "moderate")
-
-# Characters that are illegal in filenames on common filesystems (reused from
-# the folder sanitizer): < > : " / \ | ? * and C0 control chars.
-# Additionally neutralized under the 'moderate' level: shell-hostile but
-# otherwise-legal characters that routinely trip scripts and other tools, plus
-# commas (ASCII, fullwidth, and ideographic).
-# ('&' is handled separately: it is rewritten to '_and_' to preserve meaning.)
-_MODERATE_EXTRA = set("'\"`;$(){}!#@~%,\uff0c\u3001")
-
+# Illegal on Windows (the strictest of the common filesystems), plus C0 controls.
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# OS-legal characters that still trip shells and other software. Removed only
+# under --strict-names. '&' is rewritten to " and " rather than dropped.
+_STRICT_DROP = re.compile(r"['\"`;$(){}!#@~%,\uff0c\u3001]")
 _RESERVED = {
     "con", "prn", "aux", "nul",
     *(f"com{i}" for i in range(1, 10)),
     *(f"lpt{i}" for i in range(1, 10)),
 }
 
-# Private-use placeholder that stands in for the verbatim YouTube-ID token while
-# the rest of the stem is scrubbed. It is treated as ordinary content (not a
-# separator), so the separator-collapse passes never touch the real ID.
-_ID_SENTINEL = "\uE000"
+def _is_illegal(ch: str) -> bool:
+    return bool(_ILLEGAL.match(ch))
 
 
 def sanitize_component(name: str, fallback: str = "Unknown") -> str:
-    """Make a single path component safe across filesystems."""
-    name = _ILLEGAL.sub("_", name)
-    # Collapse fullwidth/odd separators already handled upstream; trim junk.
-    name = name.strip().strip(".")
-    name = re.sub(r"\s+", " ", name)
-    if not name or name.lower() in _RESERVED:
-        return fallback
-    return name[:200]
+    """Make one path component legal on Windows, macOS, and Linux.
 
-
-def _id_span(stem: str) -> tuple[int, int] | None:
-    """Return the (start, end) span of the YouTube-ID token within a stem.
-
-    Bracket form `[<id>]` is preferred; the dash-suffix form `-<id>` at the end
-    is protected together with its leading dash so the separator survives.
+    Illegal characters (``< > : " / \\ | ? *`` and controls) are dropped.
+    When dropping one would glue two words together, a single hyphen is left
+    (``AC/DC`` → ``AC-DC``, ``Hello?`` → ``Hello``). Spaces, parentheses,
+    brackets, ``&``, and apostrophes stay. Whitespace collapses to one space.
     """
-    m = _BRACKET_RE.search(stem)
-    if m:
-        return m.span()
-    m = _DASH_RE.search(stem)
-    if m:
-        return m.span()
-    return None
-
-
-def _is_bad(ch: str, moderate: bool) -> bool:
-    if _ILLEGAL.match(ch):
-        return True
-    return moderate and ch in _MODERATE_EXTRA
-
-
-def _split_id(stem: str) -> tuple[str, str]:
-    """Replace the YouTube-ID token in `stem` with a sentinel.
-
-    Returns `(stem_with_sentinel, id_text)`. The sentinel is treated as ordinary
-    content by the scrubber, so separator-collapse never mangles IDs that contain
-    ``_``/``-`` runs (e.g. ``EX_-1xbYx_E``). Splice the verbatim `id_text` back in
-    as the final step. When no ID is present, returns `(stem, "")`.
-    """
-    span = _id_span(stem)
-    if span is None:
-        return stem, ""
-    return stem[: span[0]] + _ID_SENTINEL + stem[span[1] :], stem[span[0] : span[1]]
-
-
-def _splice_id(text: str, id_text: str) -> str:
-    """Substitute the ID sentinel back with the verbatim `id_text`.
-
-    Junction-aware: the dash-suffix ID form carries its own leading ``-``
-    separator, so if the scrubbed text already ends in a separator right before
-    the sentinel (e.g. a seam left by removing ``)``), the duplicate is dropped
-    to avoid ``--``/``__``. The same is applied symmetrically at the trailing
-    edge. Separators *inside* `id_text` are never touched.
-    """
-    if not id_text:
-        return text.replace(_ID_SENTINEL, "")
-    idx = text.find(_ID_SENTINEL)
-    if idx == -1:
-        return text
-    before, after = text[:idx], text[idx + 1 :]
-    if id_text[:1] in "-_" and before[-1:] in "-_":
-        before = before[:-1]
-    if id_text[-1:] in "-_" and after[:1] in "-_":
-        after = after[1:]
-    return before + id_text + after
-
-
-def _clean_stem(stem: str, moderate: bool) -> str:
-    """Core stem scrubber shared by clean_filename and token normalization.
-
-    Whitespace runs collapse to a single underscore; runs of removed characters
-    collapse to nothing, except a single dash seam is inserted when removal would
-    otherwise concatenate two kept characters. The ID sentinel (if present) is
-    treated as ordinary content and passes through untouched.
-
-    Under 'moderate', '&' is rewritten to ' and ' (surrounding whitespace then
-    collapses to '_and_') so the meaning survives instead of being dropped.
-    """
-    if moderate:
-        stem = stem.replace("&", " and ")
-
-    tokens: list[tuple[str, str]] = []
-    i, n = 0, len(stem)
+    out: list[str] = []
+    i, n = 0, len(name)
     while i < n:
-        ch = stem[i]
-        if ch.isspace():
+        ch = name[i]
+        if _is_illegal(ch):
             j = i + 1
-            while j < n and stem[j].isspace():
+            while j < n and _is_illegal(name[j]):
                 j += 1
-            tokens.append(("sp", ""))
-            i = j
-        elif _is_bad(ch, moderate):
-            j = i + 1
-            while j < n and _is_bad(stem[j], moderate):
-                j += 1
-            tokens.append(("bad", ""))
+            prev = out[-1] if out else ""
+            nxt = name[j] if j < n else ""
+            if prev and not prev.isspace() and nxt and not nxt.isspace():
+                out.append("-")
             i = j
         else:
-            tokens.append(("c", ch))
-            i += 1
-
-    out: list[str] = []
-    for idx, (kind, ch) in enumerate(tokens):
-        if kind == "c":
             out.append(ch)
-        elif kind == "sp":
-            out.append("_")
-        else:  # bad run: seam only when flanked by content on both sides
-            prev_content = idx > 0 and tokens[idx - 1][0] == "c"
-            next_content = idx + 1 < len(tokens) and tokens[idx + 1][0] == "c"
-            if prev_content and next_content:
-                out.append("-")
-
-    cleaned = "".join(out)
-    cleaned = re.sub(r"_+", "_", cleaned)
-    cleaned = re.sub(r"-+", "-", cleaned)
-    # A mixed run like "_-_" (from " - ") must collapse to one underscore.
-    cleaned = re.sub(r"(?:_-|-_)+_?", "_", cleaned)
-    cleaned = cleaned.strip("_-")
-    cleaned = cleaned.rstrip(" .")  # Windows: no trailing dot/space
-    return cleaned
+            i += 1
+    text = re.sub(r"\s+", " ", "".join(out)).strip(" .")
+    if not text or text.lower() in _RESERVED:
+        return fallback
+    return text[:200]
 
 
-def _squash(s: str) -> str:
-    """Reduce to lowercase alphanumerics for tolerant substring comparison."""
-    return re.sub(r"[^a-z0-9]+", "", s.lower())
+def strict_names(text: str) -> str:
+    """Drop shell-hostile punctuation and spell ``&`` as ``and``.
 
-
-def _norm_token(text: str, moderate: bool) -> str:
-    """Normalize a free-form artist/title into an OS-safe filename fragment."""
-    return _clean_stem(text.strip(), moderate)
-
-
-def clean_filename(name: str, level: str | None) -> str:
-    """Return an OS-safe, tidied version of a filename.
-
-    Goals: stay as close to the original as possible while removing characters
-    that trip other software. The YouTube-ID token and the file extension are
-    preserved verbatim. Whitespace runs collapse to a single underscore; runs of
-    removed characters collapse to nothing, except a single dash is inserted as a
-    seam when removal would otherwise concatenate two kept characters.
-
-    level:
-      - None            -> no change (original name returned)
-      - 'conservative'  -> remove only filesystem-illegal/control characters
-      - 'moderate'      -> also neutralize shell-hostile characters
+    Parentheses, quotes, and commas are removed. The YouTube id is not passed
+    through here; callers append ``[id]`` afterwards.
     """
-    if level is None:
-        return name
-    if level not in CLEAN_LEVELS:
-        raise ValueError(f"level must be one of {CLEAN_LEVELS} or None")
-    moderate = level == "moderate"
-
-    ext = Path(name).suffix
-    stem = name[: len(name) - len(ext)] if ext else name
-
-    proto, id_text = _split_id(stem)
-    cleaned = _splice_id(_clean_stem(proto, moderate)[:200], id_text)
-
-    if not cleaned:
-        cleaned = extract_youtube_id(name)[0] or "Unknown"
-    if cleaned.lower() in _RESERVED:
-        cleaned = "_" + cleaned
-    return cleaned + ext
+    text = text.replace("&", " and ")
+    text = _STRICT_DROP.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def enhance_filename(
-    name: str,
-    artist: str | None,
-    title: str | None,
-    level: str | None,
+def shape_component(
+    text: str,
+    *,
+    strict: bool = False,
+    spaces_to_underscores: bool = False,
+    fallback: str = "Unknown",
 ) -> str:
-    """Prepend the known artist/title to a filename, keeping ID + extension.
-
-    Produces roughly `Artist_Title_<original-rest-including-id>.ext`. Each of
-    the artist/title fragments is normalized to be OS-safe and is skipped when
-    it is already present in the name (tolerant, case-insensitive match), so
-    already-descriptive files are not doubled up. The original tail is scrubbed
-    per `level` (or left as-is when `level` is None), while the injected
-    fragments are always sanitized.
-    """
-    moderate = level == "moderate"
-
-    ext = Path(name).suffix
-    stem = name[: len(name) - len(ext)] if ext else name
-
-    # Work on the sentinel form so the ID survives scrubbing and collapsing.
-    proto, id_text = _split_id(stem)
-    proto = _clean_stem(proto, moderate) if level else proto
-
-    # Duplication guard compares against the tail with the ID excluded (the
-    # sentinel squashes away), so an ID never falsely matches an artist/title.
-    seen = _squash(proto)
-    parts: list[str] = []
-    for token in (artist, title):
-        if not token:
-            continue
-        norm = _norm_token(token, moderate)
-        squashed = _squash(norm)
-        if not squashed or squashed in seen:
-            continue  # missing after normalization, or already present
-        parts.append(norm)
-        seen += squashed  # guard against artist == title duplication
-
-    if not parts:
-        return clean_filename(name, level) if level else name
-
-    prefix = "_".join(parts)
-    tail = proto.lstrip("_-")
-    combined = f"{prefix}_{tail}" if tail else prefix
-    combined = _splice_id(combined.strip("_-")[:200], id_text)
-
-    if not combined:
-        combined = extract_youtube_id(name)[0] or "Unknown"
-    if combined.lower() in _RESERVED:
-        combined = "_" + combined
-    return combined + ext
+    """OS-safe a component, then apply the optional strict and space flags."""
+    shaped = sanitize_component(text, fallback="")
+    if strict and shaped:
+        shaped = strict_names(shaped).strip(" .")
+    if not shaped or shaped.lower() in _RESERVED:
+        shaped = fallback
+    if len(shaped) > 200:
+        shaped = shaped[:200].rstrip(" .") or fallback
+    if spaces_to_underscores:
+        shaped = shaped.replace(" ", "_")
+    return shaped
 
 
 @dataclass
@@ -292,11 +120,6 @@ class PlannedMove:
     to_path: str | None
 
 
-def uses_supplied_title(reason: str | None, title: str | None) -> bool:
-    """True when a decision carries a user-supplied title from a video override."""
-    return reason == "video override" and bool(title and title.strip())
-
-
 def destination_filename(
     artist: str | None,
     title: str | None,
@@ -304,35 +127,36 @@ def destination_filename(
     original_name: str,
     *,
     include_artist: bool = True,
-    clean_names: str | None = None,
+    strict: bool = False,
+    spaces_to_underscores: bool = False,
 ) -> str:
     """Build ``Artist - Title [id].ext`` from a decision.
 
-    ``include_artist`` selects ``Title [id].ext`` when an artist folder already
-    carries the artist and the caller asked to omit the prefix, and also when
-    the decision has no artist. A title is required for a planned move.
-
-    ``clean_names`` scrubs the constructed name. ``None`` applies only
-    ``sanitize_component``, so spaces and punctuation the user kept survive.
-    The bracketed YouTube id and the original extension are always present.
+    The words are shaped before the id is appended, so brackets and
+    underscores inside the YouTube id are left alone. ``include_artist`` is
+    false when the artist folder already carries the name, or when there is
+    no artist. ``--spaces-to-underscores`` also turns the space before
+    ``[id]`` into ``_``.
     """
     ext = Path(original_name).suffix
     artist_text = artist.strip() if artist else ""
     title_text = title.strip() if title else ""
-    if artist_text and (include_artist or not title_text):
+    if artist_text and include_artist:
         label = f"{artist_text} - {title_text}" if title_text else artist_text
     else:
         label = title_text or artist_text
 
-    id_token = f" [{youtube_id}]"
-    if clean_names:
-        return clean_filename(f"{label}{id_token}{ext}", clean_names)
-
-    stem = sanitize_component(label, fallback="Unknown")
-    room = 200 - len(id_token)
+    joiner = "_" if spaces_to_underscores else " "
+    id_token = f"[{youtube_id}]"
+    room = 200 - len(joiner) - len(id_token)
+    stem = shape_component(
+        label, strict=strict, spaces_to_underscores=spaces_to_underscores, fallback="",
+    )
     if len(stem) > room:
-        stem = stem[:room].rstrip(" .") or youtube_id
-    return f"{stem}{id_token}{ext}"
+        stem = stem[:room].rstrip(" ._")
+    if not stem:
+        stem = "Unknown"
+    return f"{stem}{joiner}{id_token}{ext}"
 
 
 def _target_path(
@@ -340,38 +164,31 @@ def _target_path(
     genre: str | None,
     artist: str | None,
     filename: str,
-    clean_names: str | None = None,
     title: str | None = None,
-    enhance_names: bool = False,
     include_artist_folder: bool = True,
     youtube_id: str | None = None,
-    reason: str | None = None,
     omit_artist_from_filename: bool = False,
+    strict: bool = False,
+    spaces_to_underscores: bool = False,
 ) -> Path:
-    # enhance_names is accepted for compatibility. Artist and title are already
-    # part of every destination name, so the flag does not change the result.
-    del enhance_names
+    policy = {"strict": strict, "spaces_to_underscores": spaces_to_underscores}
     dest = target_root
     if genre:
-        dest = dest / sanitize_component(genre)
+        dest = dest / shape_component(genre, **policy)
     artist_text = artist.strip() if artist else ""
     if include_artist_folder and artist_text:
-        dest = dest / sanitize_component(artist_text)
+        dest = dest / shape_component(artist_text, **policy)
     title_text = title.strip() if title else ""
     include_artist = bool(artist_text) and not (
         omit_artist_from_filename and include_artist_folder and title_text
     )
-    supplied = uses_supplied_title(reason, title_text)
     if youtube_id:
         fname = destination_filename(
             artist, title, youtube_id, filename,
-            include_artist=include_artist,
-            clean_names=None if supplied else clean_names,
+            include_artist=include_artist, **policy,
         )
-    elif clean_names:
-        fname = clean_filename(filename, clean_names)
     else:
-        fname = filename
+        fname = shape_component(Path(filename).stem, **policy) + Path(filename).suffix
     return dest / fname
 
 
@@ -387,10 +204,10 @@ def _resolve_collision(dest: Path, youtube_id: str, taken: set[str]) -> Path:
 def build_plan(
     target_root: str | Path,
     db_path: str | Path = db.DEFAULT_DB_PATH,
-    clean_names: str | None = None,
-    enhance_names: bool = False,
     min_artist_files: int = 1,
     omit_artist_from_filename: bool = False,
+    strict_names: bool = False,
+    spaces_to_underscores: bool = False,
 ) -> list[PlannedMove]:
     """Compute destination paths for every moved file.
 
@@ -437,10 +254,12 @@ def build_plan(
                 )
                 dest = _target_path(
                     target_root, r["genre"], r["artist"], r["filename"],
-                    clean_names, title=r["title"], enhance_names=enhance_names,
+                    title=r["title"],
                     include_artist_folder=include_artist_folder,
-                    youtube_id=r["youtube_id"], reason=r["reason"],
+                    youtube_id=r["youtube_id"],
                     omit_artist_from_filename=omit_artist_from_filename,
+                    strict=strict_names,
+                    spaces_to_underscores=spaces_to_underscores,
                 )
                 dest = _resolve_collision(dest, r["youtube_id"], taken)
                 taken.add(str(dest))

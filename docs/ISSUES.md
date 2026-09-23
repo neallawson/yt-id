@@ -49,19 +49,17 @@ Lightweight tracker for bugs and enhancements to address later.
      - no separator found at all.
   4. **Surface, don't hide.** Keep flagged items in the existing worklist/review
      flow with the reason, so the human only sees the ~10% that actually need eyes.
-- **Note:** This dovetails with the existing `--clean-names`/`enhance_filename`
-  sanitizer (`ytid/plan.py`), which already knows the OS-safe/allowed-char rules —
-  the parser's normalization step can share that machinery.
+- **Note:** Filename shaping lives in `sanitize_component` / `strict_names`
+  (`ytid/plan.py`). A future filename parser can share that.
 
 ### User-supplied titles should be authoritative in `plan` — DONE 2026-09-22
 - **Resolution:** every move is renamed `Artist - Title [id].ext` (original
   extension kept), whether the artist and title came from a lookup or from
   `ytid.yaml`. `--omit-artist-from-filename` drops the artist prefix only when
   an artist folder is created (`Title [id].ext`); a flattened file still keeps
-  the artist in the name. A video override (`reason == "video override"` with a
-  non-empty title) skips `--clean-names` and is only passed through
-  `sanitize_component`. An override with an artist but no title stays in review.
-  `--enhance-names` no longer changes the destination name.
+  the artist in the name. Supplied and parsed names go through the same
+  shaper. `--strict-names` and `--spaces-to-underscores` are optional and
+  apply to every folder and filename. An override with no title stays in review.
 
 ### No way to prune DB rows for files removed from disk
 - **Reported:** 2026-09-07
