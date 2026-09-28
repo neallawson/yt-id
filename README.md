@@ -93,23 +93,24 @@ answers, so you edit one file instead of juggling `resolve` and `overrides.yaml`
   the row to `resolved`.
 - **`artists:`** — optional `artist → genre` shortcuts.
 
-`scan` and `fetch` refresh it **non-destructively** (your edits are preserved,
-new problems appended). Regenerate or inspect it anytime:
+`scan`, `fetch`, and `classify` append new problems to it. Your filled-in
+answers are kept. Inspect the file, or append again yourself, with:
 
 ```bash
-yt-id worklist          # (re)write ytid.yaml with anything still pending
-yt-id worklist --list   # print pending items without writing
+yt-id worklist          # print ytid.yaml; does not write
+yt-id worklist --sync   # append new pending items and rewrite ytid.yaml
 ```
 
-`--list` reports each entry with its **line number** in `ytid.yaml` and a
-progress summary, and takes filters so a large file stays scannable:
+The printout shows each entry with its **line number** and a progress summary,
+and takes filters so a large file stays scannable. `--list` is the same print
+and is optional.
 
 ```bash
-yt-id worklist --list --missing-genre          # entries lacking a genre
-yt-id worklist --list --missing-artist --missing-title  # OR-combined
-yt-id worklist --list --action review          # entries that will land in review
-yt-id worklist --list --action blank           # entries whose action field is empty
-yt-id worklist --list --missing-genre --compact # one tab-separated line each
+yt-id worklist --missing-genre          # entries lacking a genre
+yt-id worklist --missing-artist --missing-title  # OR-combined
+yt-id worklist --action review          # entries that will land in review
+yt-id worklist --action blank           # entries whose action field is empty
+yt-id worklist --missing-genre --compact # one tab-separated line each
 ```
 
 - **`--missing-artist` / `--missing-title` / `--missing-genre`** keep only
@@ -120,8 +121,10 @@ yt-id worklist --list --missing-genre --compact # one tab-separated line each
 - **`--compact`** prints `LINE⇥action⇥id⇥filename`, handy for
   `$EDITOR +LINE ytid.yaml` and piping.
 
-Refreshes are **append-only**: new problems are added and your existing entries
-are never rewritten or removed, so anything you've already answered stays put.
+`--sync` rewrites `ytid.yaml`, but only to append new problems. Entries you
+have already answered stay. Comments you added in the file can be dropped,
+because the file is written back through the YAML dumper. `scan`, `fetch`, and
+`classify` run that same append.
 
 `classify` applies `ytid.yaml` first — assigning any supplied IDs and layering
 its per-video/artist overrides on top of `overrides.yaml` (the working-dir file

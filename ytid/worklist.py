@@ -13,8 +13,10 @@ supply the missing ground truth in one place:
 - ``artists:``      optional artist -> genre shortcuts applied to every video by
                     that artist.
 
-The file is *regenerated non-destructively*: ``sync_worklist`` only appends
-stubs for newly-seen problems and never overwrites fields you have edited.
+``yt-id worklist`` prints this file and does not write it. ``yt-id worklist
+--sync`` (and ``scan`` / ``fetch`` / ``classify``) call ``sync_worklist``, which
+appends stubs for newly-seen problems and never overwrites fields you have
+edited. The rewrite can drop comments you added in the file.
 ``apply_worklist`` reads it back, assigns any supplied ids, and returns the
 overrides for classify to merge (worklist wins over ``overrides.yaml``).
 """
@@ -127,7 +129,7 @@ def read_entries(path: str | Path = WORKLIST_FILE) -> dict[str, list[dict]]:
 
     Unlike ``pending_items`` (which reads the DB), this reflects the *file* as
     the user sees it, so blank fields and editor line numbers are available for
-    ``worklist --list`` filtering. Each returned dict carries a ``line`` key.
+    ``yt-id worklist`` filtering. Each returned dict carries a ``line`` key.
     """
     empty: dict[str, list[dict]] = {"videos": [], "unidentified": []}
     p = Path(path)

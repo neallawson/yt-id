@@ -184,7 +184,7 @@ def _worklist_matches(entry, resolved_action, action_filter, missing) -> bool:
 
 
 def _cmd_worklist(args) -> int:
-    if args.list:
+    if not args.sync:
         entries = worklist_mod.read_entries(args.worklist)
         resolved = worklist_mod.resolved_actions(db_path=args.db)
         missing = _worklist_missing_fields(args)
@@ -428,16 +428,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_work = sub.add_parser(
         "worklist",
-        help="regenerate ytid.yaml (the fill-in file of record) or list what's pending",
+        help="print ytid.yaml (default) or append new pending items with --sync",
     )
     p_work.add_argument(
         "--worklist", default=worklist_mod.WORKLIST_FILE,
-        help="path to write/update (default: ytid.yaml)",
+        help="path to the file of record (default: ytid.yaml)",
     )
-    p_work.add_argument(
+    mode = p_work.add_mutually_exclusive_group()
+    mode.add_argument(
         "--list", action="store_true",
-        help="print entries from ytid.yaml (with line numbers) instead of "
-             "writing the file; combine with the filters below",
+        help="print entries from ytid.yaml with line numbers (this is the "
+             "default; the flag is optional). Combine with the filters below.",
+    )
+    mode.add_argument(
+        "--sync", action="store_true",
+        help="append new pending items to ytid.yaml and rewrite the file. "
+             "Existing artist/title/genre answers are kept. Comments you added "
+             "in the file may be dropped.",
     )
     p_work.add_argument(
         "--action", choices=["move", "review", "skip", "blank", "all"],

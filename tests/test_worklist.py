@@ -419,3 +419,45 @@ def test_worklist_list_action_move_uses_resolved_decision(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "aaaaaaaaaaa" in out
     assert "bbbbbbbbbbb" not in out
+
+
+def test_worklist_default_prints_and_does_not_write(tmp_path, capsys):
+    dbp = str(tmp_path / "ytid.db")
+    wl = tmp_path / "ytid.yaml"
+    body = (
+        "videos:\n"
+        "  aaaaaaaaaaa:\n"
+        "    file: A.webm\n"
+        '    artist: "Band A"\n'
+        '    title: "Song A"\n'
+    )
+    _write_worklist(wl, body)
+    before = wl.read_text(encoding="utf-8")
+    _seed_video(dbp, src_path="/s/A.webm", filename="A.webm", youtube_id="aaaaaaaaaaa")
+    rc = cli.main(["--db", dbp, "worklist", "--worklist", str(wl), "--compact"])
+    assert rc == 0
+    assert "aaaaaaaaaaa" in capsys.readouterr().out
+    assert wl.read_text(encoding="utf-8") == before
+
+
+def test_worklist_sync_appends_without_clearing_answers(tmp_path, capsys):
+    dbp = str(tmp_path / "ytid.db")
+    wl = tmp_path / "ytid.yaml"
+    _write_worklist(wl, (
+        "videos:\n"
+        "  aaaaaaaaaaa:\n"
+        "    file: A.webm\n"
+        '    artist: "Band A"\n'
+        '    title: "Song A"\n'
+    ))
+    _seed_video(dbp, src_path="/s/A.webm", filename="A.webm",
+                youtube_id="aaaaaaaaaaa", fetch_status="unavailable")
+    _seed_video(dbp, src_path="/s/B.webm", filename="B.webm",
+                youtube_id="bbbbbbbbbbb", fetch_status="unavailable")
+    rc = cli.main(["--db", dbp, "worklist", "--worklist", str(wl), "--sync"])
+    assert rc == 0
+    assert "wrote" in capsys.readouterr().out
+    data = yaml.safe_load(wl.read_text(encoding="utf-8"))
+    assert data["videos"]["aaaaaaaaaaa"]["artist"] == "Band A"
+    assert data["videos"]["aaaaaaaaaaa"]["title"] == "Song A"
+    assert "bbbbbbbbbbb" in data["videos"]

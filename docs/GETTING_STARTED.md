@@ -99,30 +99,30 @@ an auto-generated worklist and the authoritative source of your manual answers:
 - **`artists:`** — optional `artist -> genre` shortcuts applied to all their
   videos.
 
-`scan` and `fetch` refresh this file automatically (non-destructively: your
-edits are preserved, new problems are appended). Regenerate or inspect it
-anytime:
+`scan`, `fetch`, and `classify` append new problems automatically. Your
+filled-in answers are kept. Inspect the file, or append again yourself, with:
 
 ```bash
-yt-id worklist          # (re)write ytid.yaml with anything still pending
-yt-id worklist --list   # just print pending items (with line numbers), don't write
+yt-id worklist          # print ytid.yaml; does not write
+yt-id worklist --sync   # append new pending items and rewrite ytid.yaml
 ```
 
-`--list` prints each entry with its line number plus a progress summary, and
-accepts filters so a big file stays manageable:
+The printout shows each entry with its line number plus a progress summary,
+and accepts filters so a big file stays manageable. `--list` is the same print
+and is optional.
 
 ```bash
-yt-id worklist --list --missing-genre           # only entries lacking a genre
-yt-id worklist --list --missing-artist --missing-title  # OR: missing either
-yt-id worklist --list --action review            # what will land in review
-yt-id worklist --list --action blank             # empty action field in the file
-yt-id worklist --list --missing-genre --compact  # LINE<tab>action<tab>id<tab>file
+yt-id worklist --missing-genre           # only entries lacking a genre
+yt-id worklist --missing-artist --missing-title  # OR: missing either
+yt-id worklist --action review            # what will land in review
+yt-id worklist --action blank             # empty action field in the file
+yt-id worklist --missing-genre --compact   # LINE<tab>action<tab>id<tab>file
 ```
 
 `--compact` output is ideal for jumping straight to a line
-(`$EDITOR +LINE ytid.yaml`) or piping to other tools. Refreshes are
-**append-only** — new problems are added and your existing answers are never
-rewritten or removed.
+(`$EDITOR +LINE ytid.yaml`) or piping to other tools. `--sync` rewrites the
+file only to append new problems; answers you already typed stay. Comments you
+added in the file can be dropped.
 
 After filling in the blanks, run `yt-id classify` — it applies `ytid.yaml`
 before deciding, so your answers (including titles) win over any guess.
@@ -231,8 +231,8 @@ unidentified:
   title: Never Gonna Give You Up
   genre: pop
 ```
-Regenerate or review the list anytime with `yt-id worklist` /
-`yt-id worklist --list`. The next `classify` applies everything here first.
+Print the list anytime with `yt-id worklist`. Append newly found problems
+with `yt-id worklist --sync`. The next `classify` applies everything here first.
 
 Still need the low-level id fixer? `yt-id unresolved` / `yt-id resolve --id N
 --youtube-id …` remain available for one-off DB edits.
