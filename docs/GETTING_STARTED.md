@@ -53,7 +53,7 @@ Pick whichever fits how often you use the tool:
 | **Dev / editable venv** | `python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"` | Edits to the source take effect immediately. `yt-id` works while the venv is active. |
 | **No install** | `python -m ytid.cli scan --source ...` | Run from the repo root. |
 | **Global, isolated (recommended)** | `pipx install /path/to/yt-id` | Puts a `yt-id` symlink on your PATH (`~/.local/bin`) in its own env. Add `-e` for editable. |
-| **From Git** | `pipx install git+https://github.com/jneallawson/yt-id.git` | No local checkout needed. See §7. |
+| **From Git** | `pipx install git+https://github.com/neallawson/yt-id.git` | No local checkout needed. See §7. |
 
 If you already have a `.venv` with an editable install, the launcher lives at
 `.venv/bin/yt-id`. To use `yt-id` without activating the venv, add that `bin`
@@ -333,16 +333,16 @@ future-you on a new machine) can install `yt-id` with a single command — no
 account, no build step, nothing to upload:
 
 ```bash
-pipx install git+https://github.com/jneallawson/yt-id.git
+pipx install git+https://github.com/neallawson/yt-id.git
 ```
 
 - **Updating to the latest commit:**
   ```bash
-  pipx install --force git+https://github.com/jneallawson/yt-id.git
+  pipx install --force git+https://github.com/neallawson/yt-id.git
   ```
 - **Pinning to a specific tag or commit** (reproducible):
   ```bash
-  pipx install "git+https://github.com/jneallawson/yt-id.git@v0.1.0"
+  pipx install "git+https://github.com/neallawson/yt-id.git@v0.1.0"
   ```
 - Remember `yt-dlp` is still a separate prerequisite (see §1).
 

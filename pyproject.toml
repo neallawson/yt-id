@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jneallawson/yt-id"
-Repository = "https://github.com/jneallawson/yt-id"
-Issues = "https://github.com/jneallawson/yt-id/issues"
+Homepage = "https://github.com/neallawson/yt-id"
+Repository = "https://github.com/neallawson/yt-id"
+Issues = "https://github.com/neallawson/yt-id/issues"
 
 [project.scripts]
 yt-id = "ytid.cli:main"
