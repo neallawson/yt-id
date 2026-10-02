@@ -24,44 +24,69 @@ config works, and the end-to-end workflow.
 
 ---
 
-## 2. How the `yt-id` command actually works
+## 2. Running `yt-id`
 
-`yt-id` is a Python package with a **console-script entry point** declared in
-`pyproject.toml`:
+Two ways to get a `yt-id` command. Both run this checkout, so edits to the
+source show up the next time you run it.
+
+### This terminal
+
+From the repo root, if `.venv` already exists:
+
+```bash
+source .venv/bin/activate
+yt-id
+```
+
+Activation lasts for that terminal. A new terminal needs `source` again.
+The same launcher works without activating:
+
+```bash
+.venv/bin/yt-id
+```
+
+### Every terminal
+
+Once, from the repo root:
+
+```bash
+pipx install -e .
+```
+
+`pipx` puts `yt-id` on your PATH (`~/.local/bin`) in its own environment.
+After that, any terminal can run `yt-id` with no activation. `-e` points that
+command at this checkout. Tests still use `.venv` (`.venv/bin/python -m pytest`).
+
+### First time in a fresh checkout
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+`".[dev]"` installs the package plus the test tools. After that, the two
+commands above work. A machine with no checkout can install from GitHub
+instead; see §7.
+
+### Why the source folder is not enough
+
+`yt-id` is a package. `pyproject.toml` declares the command:
 
 ```toml
 [project.scripts]
 yt-id = "ytid.cli:main"
 ```
 
-When the package is installed, pip generates a small launcher named `yt-id` in
-the environment's `bin/` directory. Running `yt-id scan ...` just runs that
-launcher, which calls `ytid.cli:main`.
+Installing the package writes a small launcher named `yt-id` into an
+environment's `bin/` directory (`.venv/bin/yt-id`, or the one `pipx` links onto
+your PATH). That launcher is what runs `ytid.cli:main`.
 
-> **Why you can't just add the source folder to PATH:** `PATH` finds
-> *executables*, but the source folder only has Python *modules*. And
-> `ytid/cli.py` uses package-relative imports (`from . import db`), so it can't
-> be run as a standalone script. The `yt-id` command only exists once the package
-> is installed (or via `python -m ytid.cli`).
-
-### Ways to run it
-
-Pick whichever fits how often you use the tool:
-
-| Approach | Command | Notes |
-|----------|---------|-------|
-| **Dev / editable venv** | `python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"` | Edits to the source take effect immediately. `yt-id` works while the venv is active. |
-| **No install** | `python -m ytid.cli scan --source ...` | Run from the repo root. |
-| **Global, isolated (recommended)** | `pipx install /path/to/yt-id` | Puts a `yt-id` symlink on your PATH (`~/.local/bin`) in its own env. Add `-e` for editable. |
-| **From Git** | `pipx install git+https://github.com/neallawson/yt-id.git` | No local checkout needed. See §7. |
-
-If you already have a `.venv` with an editable install, the launcher lives at
-`.venv/bin/yt-id`. To use `yt-id` without activating the venv, add that `bin`
-directory to your PATH (not the source folder):
-
-```bash
-export PATH="/path/to/yt-id/.venv/bin:$PATH"
-```
+PATH only finds executables. The source tree is Python modules, and
+`ytid/cli.py` uses package imports (`from . import db`), so it is not a
+standalone script. Adding the repo root to PATH does not create a `yt-id`
+command. With the venv active you can also run `python -m ytid.cli` from the
+repo root; that calls the same entry point.
 
 ---
 
@@ -198,6 +223,11 @@ Files whose ID can't be confidently detected are added to `ytid.yaml` under
 
 ### Step 2 — `fetch`: get metadata via yt-dlp (slow, network)
 Politely rate-limited; results are cached in the DB so you only fetch once.
+The cache keeps the fields `classify` uses (title, artist, track, channel, and
+a few small extras such as album and duration). The rest of the yt-dlp dump —
+formats, thumbnails, captions — is not stored. An older database that still
+holds the full dump is rewritten to this short record, and shrunk, the next
+time any command opens it.
 ```bash
 yt-id fetch                       # fetch everything pending
 yt-id fetch --limit 20            # do a batch at a time
@@ -276,6 +306,13 @@ yt-id apply --manifest manifest.json --undo --apply   # reverse a prior apply
 On failure the default policy rolls back the current run; `--on-error stop` or
 `skip` change that behavior.
 
+A real apply also writes a **move log** beside the manifest,
+`manifest.moves.<timestamp>.log` (override the path with `--log`). It is an
+audit record, not a script. The `#` header carries the time, the manifest
+path, the database, the run id, and the counts. After a blank line, each
+completed move is one line: the original path, a tab, the destination path.
+A tab or newline inside a path is escaped, so the line stays one record.
+
 ### Step 6 — `export`: archive an audit ledger (optional but recommended)
 After the files are moved, dump a **denormalized ledger** — one row per file,
 joining what was scanned, decided, and where it landed — so you have a
@@ -286,7 +323,7 @@ yt-id export --format csv --out audit # just audit.csv
 ```
 Then archive it alongside the DB and your manual answers, next to the videos:
 ```bash
-tar czf ~/archive/2026-05-01-batch.tar.gz ytid.db ytid.yaml ledger.json ledger.csv
+tar czf ~/archive/2026-05-01-batch.tar.gz ytid.db ytid.yaml ledger.json ledger.csv manifest.moves.*.log
 ```
 The ledger is a **view** for auditing, not a restore format: `ytid.db` remains
 the queryable truth and `ytid.yaml` the re-appliable record of your hand edits.
@@ -316,7 +353,7 @@ yt-id classify
 yt-id review                      # sanity-check the queue
 yt-id plan     --target "/Music Videos"
 yt-id apply    --manifest manifest.json          # dry-run
-yt-id apply    --manifest manifest.json --apply  # go
+yt-id apply    --manifest manifest.json --apply  # go; writes manifest.moves.<timestamp>.log
 yt-id export                                      # ledger.json + ledger.csv (audit)
 ```
 

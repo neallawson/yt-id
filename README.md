@@ -31,7 +31,11 @@ network-bound work is isolated from the fast, local work:
 
 State lives in SQLite (`ytid.db` by default): `videos`, `artists`,
 `decisions`, and `moves` tables. Nothing is re-fetched or re-guessed
-unnecessarily, so runs are idempotent and safe to interrupt.
+unnecessarily, so runs are idempotent and safe to interrupt. `videos.raw_json`
+keeps a short metadata record — the fields `classify` uses, plus album,
+duration, upload date, and the watch URL — and drops the rest of the yt-dlp
+dump (formats, thumbnails, captions). Opening a database that still holds the
+full dump rewrites those rows and shrinks the file.
 
 ### Tracking & ID resolution
 
@@ -364,6 +368,15 @@ yt-id plan --target "/Music Videos" --min-artist-files 2
   behavior). Same-name collisions from flattening are handled by the existing
   YouTube-ID suffix rule.
 
+### Move log (`apply`)
+
+A real `apply` writes `manifest.moves.<timestamp>.log` next to the manifest
+(`--log` chooses another path). This is the batch record of that run: a `#`
+header with the time, manifest path, database, run id, and counts, then one
+line per completed move. The original path and the destination path are
+separated by a tab. It is not a script, and it is not a substitute for the
+ledger below — the ledger is the whole corpus, and this file is the one run.
+
 ### Audit ledger (`export`)
 
 Once a batch is applied, `export` dumps a **denormalized ledger** — one row per
@@ -462,8 +475,9 @@ yt-id classify
 yt-id plan --target "/Music Videos" --out manifest
 
 # 5. Review manifest.csv, curate ytid.yaml, re-run classify/plan.
-#    When happy, apply:
-yt-id apply --manifest manifest.json
+#    When happy, apply. A real apply also writes
+#    manifest.moves.<timestamp>.log (original path, tab, destination path):
+yt-id apply --manifest manifest.json --apply
 
 # Undo the last applied manifest:
 yt-id apply --manifest manifest.json --undo

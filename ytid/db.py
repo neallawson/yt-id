@@ -2,7 +2,7 @@
 
 Four durable tables form the backbone of the pipeline:
 
-- videos:    one row per discovered file, plus raw yt-dlp metadata & fetch status
+- videos:    one row per discovered file, plus a short metadata record & fetch status
 - artists:   resolved genre per artist, with provenance
 - decisions: the classifier's chosen artist/title/genre/target/action per video
 - moves:     an audit log of applied moves, enabling --undo
@@ -18,6 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from .metadata import compact_stored_metadata
+
 DEFAULT_DB_PATH = "ytid.db"
 
 SCHEMA = """
@@ -30,7 +32,7 @@ CREATE TABLE IF NOT EXISTS videos (
     id_source      TEXT NOT NULL DEFAULT 'none',      -- bracket|dash|manual|none
     youtube_id     TEXT UNIQUE,                       -- authoritative id used downstream
     resolve_status TEXT NOT NULL DEFAULT 'unresolved',-- resolved|unresolved|duplicate|ignored
-    raw_json       TEXT,
+    raw_json       TEXT,                              -- short metadata record, not the yt-dlp dump
     fetch_status   TEXT NOT NULL DEFAULT 'pending',  -- pending|ok|error|unavailable
     fetch_error    TEXT,
     ytdlp_version  TEXT,
@@ -107,7 +109,12 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.executescript(SCHEMA)
     _apply_migrations(conn)
+    rewritten = compact_stored_metadata(conn)
     conn.commit()
+    # SQLite keeps the freed pages until VACUUM, so a database full of yt-dlp
+    # dumps stays large until this runs. Only after a rewrite.
+    if rewritten:
+        conn.execute("VACUUM")
     return conn
 
 

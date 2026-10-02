@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import db
+from .metadata import slim_metadata
 from .ytdlp_client import DEFAULT_BINARY, fetch_metadata
 
 
@@ -62,7 +63,9 @@ def fetch_pending(
     for idx, yid in enumerate(targets, start=1):
         result = fetch_metadata(yid, binary=binary, timeout=timeout)
         now = datetime.now(timezone.utc).isoformat()
-        raw = json.dumps(result.metadata) if result.metadata is not None else None
+        raw = None
+        if result.metadata is not None:
+            raw = json.dumps(slim_metadata(result.metadata), ensure_ascii=False)
 
         # Commit each result immediately so a crash never loses progress.
         with db.session(db_path) as conn:

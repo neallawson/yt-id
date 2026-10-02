@@ -23,6 +23,7 @@ from . import config as config_mod
 from . import db
 from . import export as export_mod
 from . import fetch as fetch_mod
+from . import movelog as movelog_mod
 from . import plan as plan_mod
 from . import resolve as resolve_mod
 from . import scan as scan_mod
@@ -319,6 +320,11 @@ def _cmd_apply(args) -> int:
     result = apply_mod.apply_manifest(
         args.manifest, db_path=args.db, dry_run=not args.apply, on_error=args.on_error,
     )
+    log_path = None
+    if movelog_mod.should_write_move_log(result):
+        log_path = movelog_mod.write_run_log(
+            args.log, db_path=args.db, manifest_path=args.manifest, result=result,
+        )
     mode = "APPLY" if args.apply else "dry-run"
     print(
         f"apply ({mode}, on-error={result['on_error']}): "
@@ -326,6 +332,8 @@ def _cmd_apply(args) -> int:
         f"already_applied={result['already_applied']} "
         f"rolled_back={result['rolled_back']} errors={result['errors']}"
     )
+    if log_path:
+        print(f"apply: wrote {log_path}")
     for problem in result["problems"]:
         print(f"  ! {problem}", file=sys.stderr)
     if not args.apply and result["ok"]:
@@ -534,6 +542,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--on-error", dest="on_error", choices=apply_mod.ON_ERROR_POLICIES,
         default="rollback",
         help="failure policy: rollback (default) reverses this run, stop halts, skip continues",
+    )
+    p_apply.add_argument(
+        "--log", default=None,
+        help="where to write the move log after a real apply "
+             "(default: <manifest>.moves.<timestamp>.log beside the manifest). "
+             "A header, then one line per move: original path, a tab, destination path.",
     )
     p_apply.set_defaults(func=_cmd_apply)
 

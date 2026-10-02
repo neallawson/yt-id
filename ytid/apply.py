@@ -240,6 +240,7 @@ def apply_manifest(
         "problems": list(problems),
         "on_error": on_error,
         "dry_run": dry_run,
+        "run_id": None,
     }
 
     # Pre-flight failures are structural: never mutate anything.
@@ -252,6 +253,7 @@ def apply_manifest(
         return result
 
     run_id = uuid.uuid4().hex
+    result["run_id"] = run_id
     conn = db.connect(db_path)
     try:
         for row in ready:
