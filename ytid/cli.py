@@ -31,9 +31,14 @@ from . import worklist as worklist_mod
 from .ytdlp_client import DEFAULT_BINARY, YtDlpNotFound, get_version
 
 
-def _sync_worklist(args) -> None:
+def _sync_worklist(args, *, fill_names: bool = False) -> None:
     """Refresh the working-dir ytid.yaml and point the user at anything pending."""
-    stats = worklist_mod.sync_worklist(db_path=args.db, path=args.worklist)
+    stats = worklist_mod.sync_worklist(
+        db_path=args.db,
+        path=args.worklist,
+        fill_names=fill_names,
+        raw_artist_title=getattr(args, "raw_artist_title", False),
+    )
     pending = stats["pending_videos"] + stats["pending_unidentified"]
     if not pending:
         return
@@ -139,8 +144,9 @@ def _cmd_classify(args) -> int:
     )
     # Fold the freshly-created review bucket into the file of record so the
     # low-confidence items are visible and fixable (they only exist after this
-    # step, so scan/fetch could not have listed them).
-    _sync_worklist(args)
+    # step, so scan/fetch could not have listed them). Empty artist/title
+    # fields are suggested from the filename when the fetch had no names.
+    _sync_worklist(args, fill_names=True)
     return 0
 
 
@@ -234,7 +240,12 @@ def _cmd_worklist(args) -> int:
         )
         return 0
 
-    stats = worklist_mod.sync_worklist(db_path=args.db, path=args.worklist)
+    stats = worklist_mod.sync_worklist(
+        db_path=args.db,
+        path=args.worklist,
+        fill_names=True,
+        raw_artist_title=args.raw_artist_title,
+    )
     pending = stats["pending_videos"] + stats["pending_unidentified"]
     if not stats["wrote"]:
         print("worklist: nothing needs attention (no file written)")
@@ -432,6 +443,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="working-dir file of record applied before deciding (default: "
              "ytid.yaml); pass an empty string to ignore it",
     )
+    p_classify.add_argument(
+        "--raw-artist-title", dest="raw_artist_title", action="store_true",
+        help="when suggesting artist and title from a filename, keep the "
+             "split text unchanged. The default reformats characters only "
+             "(square brackets become parentheses, curly quotes become ', "
+             "dash lookalikes become -). Words, including (Live) or (Audio), "
+             "are kept either way.",
+    )
     p_classify.set_defaults(func=_cmd_classify)
 
     p_work = sub.add_parser(
@@ -451,8 +470,14 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument(
         "--sync", action="store_true",
         help="append new pending items to ytid.yaml and rewrite the file. "
-             "Existing artist/title/genre answers are kept. Comments you added "
-             "in the file may be dropped.",
+             "Empty artist and title are filled from the filename when the "
+             "fetch had no names. Existing answers are kept. Comments you "
+             "added in the file may be dropped.",
+    )
+    p_work.add_argument(
+        "--raw-artist-title", dest="raw_artist_title", action="store_true",
+        help="with --sync, keep filename artist/title text unchanged instead "
+             "of reformatting characters (see classify --raw-artist-title)",
     )
     p_work.add_argument(
         "--action", choices=["move", "review", "skip", "blank", "all"],
@@ -509,8 +534,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument(
         "--strict-names", dest="strict_names", action="store_true",
         help="also drop shell-hostile punctuation from folders and filenames "
-             "(' \" ` ; $ ( ) { } ! # @ ~ %% and commas). '&' becomes ' and '. "
-             "The bracketed YouTube id is kept. Default: off.",
+             "(' \" ` ; $ { } ! # @ ~ %% and commas). Parentheses stay. "
+             "'&' becomes ' and '. The bracketed YouTube id is kept. Default: off.",
     )
     p_plan.add_argument(
         "--spaces-to-underscores", dest="spaces_to_underscores", action="store_true",

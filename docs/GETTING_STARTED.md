@@ -125,11 +125,13 @@ an auto-generated worklist and the authoritative source of your manual answers:
   videos.
 
 `scan`, `fetch`, and `classify` append new problems automatically. Your
-filled-in answers are kept. Inspect the file, or append again yourself, with:
+filled-in answers are kept. `classify` and `worklist --sync` also suggest
+artist and title from the filename when both fields are empty and the fetch
+had no names (Step 2a). Inspect the file, or fill it yourself, with:
 
 ```bash
 yt-id worklist          # print ytid.yaml; does not write
-yt-id worklist --sync   # append new pending items and rewrite ytid.yaml
+yt-id worklist --sync   # append new items, fill empty artist/title, rewrite
 ```
 
 The printout shows each entry with its line number plus a progress summary,
@@ -207,9 +209,11 @@ scan → fetch → classify → (fix ytid.yaml) → classify → plan → apply
 
 `scan`, `fetch`, **and `classify`** all refresh `ytid.yaml`. The big bucket —
 low-confidence files that classify couldn't confidently place — only exists
-*after* `classify`, so it's `classify` that lists them (pre-filled with its best
-guess). The normal loop is therefore: `classify`, open `ytid.yaml`, correct the
-guesses / add genres, `classify` again.
+*after* `classify`, so it's `classify` that lists them. When a fetch produced
+no artist and no title, `classify` suggests both from the filename (see Step
+2a). The normal loop is therefore: `classify`, open `ytid.yaml`, correct the
+guesses / add genres, `classify` again. That second `classify` is what moves
+a suggestion whose `action` was left blank.
 
 ### Step 1 — `scan`: index your source folder
 Walks a folder recursively and records each file, extracting its YouTube ID.
@@ -237,10 +241,36 @@ Videos that come back `unavailable`/`error` are added to `ytid.yaml` under
 `videos:` so you can supply their details.
 
 ### Step 2a — fix `ytid.yaml`: confirm/correct what the system guessed
-Open `ytid.yaml` (auto-created in the working dir). Entries added by `classify`
-come **pre-filled with its best-guess** `artist`/`title` — you only correct what's
-wrong and add a `genre` (YouTube rarely provides one). A completed `videos:`
-entry wins unconditionally and moves:
+Open `ytid.yaml` (auto-created in the working dir). Where YouTube returned a
+name, that guess is filled in. Where the fetch came back empty, `classify`
+(and `yt-id worklist --sync`) read the filename instead, but only into an
+entry whose `artist` and `title` are both still empty. Anything you have
+already typed stays.
+
+The filename parse removes the YouTube id, then splits on ` - ` (also en dash,
+em dash, `|`, `｜`, `~`, or a fullwidth colon). `AC/DC` is not split on the
+slash. A name with no separator becomes the title alone, with the artist left
+blank. Each side then goes through the same cleaner `plan` uses:
+`[Live]` becomes `(Live)`, `AC/DC` becomes `AC-DC`, curly quotes become `'`,
+and unicode dashes become `-`. Notes such as `(Audio)`, `(Lyric Video)`, and
+`(480p)` are kept so you can judge the file before you play it and delete any
+note you do not want.
+
+```bash
+yt-id classify                      # cleaned suggestions
+yt-id classify --raw-artist-title   # the split, with characters left as-is
+```
+
+`--raw-artist-title` matters on the run that fills the blanks. A later run
+will not rewrite a field that already has text. `plan` still applies
+`--strict-names` and `--spaces-to-underscores` to the destination path only.
+
+A clean suggestion leaves `action` blank. After you have looked the file
+over, run `classify` again and that row moves. A bad split (one side empty,
+both sides the same or nearly so, or one side almost the entire name) is
+filled in with `action: review` and stays put until you edit it.
+
+A completed `videos:` entry wins unconditionally and moves:
 ```yaml
 videos:
   8R5El2HWMIo:
@@ -262,7 +292,9 @@ unidentified:
   genre: pop
 ```
 Print the list anytime with `yt-id worklist`. Append newly found problems
-with `yt-id worklist --sync`. The next `classify` applies everything here first.
+and fill empty artist/title fields with `yt-id worklist --sync` (add
+`--raw-artist-title` to skip character reformatting). The next `classify`
+applies everything here first.
 
 Still need the low-level id fixer? `yt-id unresolved` / `yt-id resolve --id N
 --youtube-id …` remain available for one-off DB edits.
@@ -271,6 +303,7 @@ Still need the low-level id fixer? `yt-id unresolved` / `yt-id resolve --id N
 Applies your config + heuristics and stores a decision per video.
 ```bash
 yt-id classify
+yt-id classify --raw-artist-title      # filename suggestions, characters unchanged
 yt-id classify --require-artist        # also require an artist
 yt-id classify --require-genre         # also require a genre
 yt-id classify --config ~/my-config    # use a specific config dir

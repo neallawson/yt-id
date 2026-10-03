@@ -62,6 +62,25 @@ def extract_youtube_id(filename: str) -> tuple[str | None, str]:
     return None, "none"
 
 
+def human_stem(filename: str) -> str:
+    """Return the filename stem with a detected YouTube id removed.
+
+    Bracket ids drop the surrounding brackets. A dash-suffix id drops the
+    hyphen that introduces it. The words on either side are left as they were.
+    """
+    # Do not use Path.stem: a slash in the name (AC/DC) is a character, not a
+    # directory separator. Drop only the last extension.
+    dot = filename.rfind(".")
+    stem = filename[:dot] if dot > 0 else filename
+    m = _BRACKET_RE.search(stem)
+    if m:
+        return (stem[: m.start()] + stem[m.end() :]).rstrip()
+    m = _DASH_RE.search(stem)
+    if m:
+        return stem[: m.start()].rstrip()
+    return stem.rstrip()
+
+
 def iter_video_files(source: Path, extensions: set[str] = VIDEO_EXTENSIONS) -> Iterable[Path]:
     for path in sorted(source.rglob("*")):
         if path.is_file() and path.suffix.lower() in extensions:

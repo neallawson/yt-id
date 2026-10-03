@@ -35,7 +35,33 @@ from . import db
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 # OS-legal characters that still trip shells and other software. Removed only
 # under --strict-names. '&' is rewritten to " and " rather than dropped.
-_STRICT_DROP = re.compile(r"['\"`;$(){}!#@~%,\uff0c\u3001]")
+# Parentheses stay: (Live) is normal in a music title, and inside quotes a
+# parenthesis is not shell syntax.
+_STRICT_DROP = re.compile(r"['\"`;${}!#@~%,\uff0c\u3001]")
+# Lookalike dashes and quotes folded to ASCII before the illegal-character pass.
+_DASH_CHARS = str.maketrans({
+    "\u2010": "-",
+    "\u2011": "-",
+    "\u2012": "-",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2015": "-",
+    "\u2212": "-",
+    "\ufe58": "-",
+    "\uff0d": "-",
+})
+_QUOTE_CHARS = str.maketrans({
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201a": "'",
+    "\u201b": "'",
+    "\u2032": "'",
+    "\uff07": "'",
+    "\u201c": "'",
+    "\u201d": "'",
+    "\u201e": "'",
+    "\u201f": "'",
+})
 _RESERVED = {
     "con", "prn", "aux", "nul",
     *(f"com{i}" for i in range(1, 10)),
@@ -46,14 +72,23 @@ def _is_illegal(ch: str) -> bool:
     return bool(_ILLEGAL.match(ch))
 
 
+def _fold_lookalikes(text: str) -> str:
+    """Map brackets, unicode dashes, and curly quotes onto ASCII."""
+    text = text.translate(_QUOTE_CHARS).translate(_DASH_CHARS)
+    return text.replace("[", "(").replace("]", ")")
+
+
 def sanitize_component(name: str, fallback: str = "Unknown") -> str:
     """Make one path component legal on Windows, macOS, and Linux.
 
-    Illegal characters (``< > : " / \\ | ? *`` and controls) are dropped.
-    When dropping one would glue two words together, a single hyphen is left
-    (``AC/DC`` → ``AC-DC``, ``Hello?`` → ``Hello``). Spaces, parentheses,
-    brackets, ``&``, and apostrophes stay. Whitespace collapses to one space.
+    Square brackets become parentheses (``[Live]`` → ``(Live)``). Unicode
+    dashes become ``-`` and curly quotes become ``'``. Illegal characters
+    (``< > : " / \\ | ? *`` and controls) are then dropped. When dropping one
+    would glue two words together, a single hyphen is left (``AC/DC`` →
+    ``AC-DC``, ``Hello?`` → ``Hello``). Spaces, parentheses, ``&``, and
+    apostrophes stay. Whitespace collapses to one space.
     """
+    name = _fold_lookalikes(name)
     out: list[str] = []
     i, n = 0, len(name)
     while i < n:
@@ -79,8 +114,8 @@ def sanitize_component(name: str, fallback: str = "Unknown") -> str:
 def strict_names(text: str) -> str:
     """Drop shell-hostile punctuation and spell ``&`` as ``and``.
 
-    Parentheses, quotes, and commas are removed. The YouTube id is not passed
-    through here; callers append ``[id]`` afterwards.
+    Quotes and commas are removed. Parentheses stay. The YouTube id is not
+    passed through here; callers append ``[id]`` afterwards.
     """
     text = text.replace("&", " and ")
     text = _STRICT_DROP.sub("", text)

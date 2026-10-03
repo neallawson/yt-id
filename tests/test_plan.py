@@ -37,15 +37,20 @@ def test_illegal_char_between_words_becomes_hyphen():
     assert sanitize_component("Foo:Bar") == "Foo-Bar"
 
 
-def test_strict_names_keeps_words_and_drops_parens():
-    assert strict_names("The Devils Answer (Live)") == "The Devils Answer Live"
+def test_strict_names_keeps_parentheses():
+    assert strict_names("The Devils Answer (Live)") == "The Devils Answer (Live)"
     assert strict_names("Hall & Oates") == "Hall and Oates"
     assert strict_names("R&B") == "R and B"
 
 
 def test_sanitize_keeps_identifying_punctuation():
     assert sanitize_component("Good Lovin' (Live) & More") == "Good Lovin' (Live) & More"
-    assert sanitize_component("Song [demo]") == "Song [demo]"
+    assert sanitize_component("Song [demo]") == "Song (demo)"
+
+
+def test_sanitize_folds_brackets_dashes_and_curly_quotes():
+    assert sanitize_component("She\u2019s Gone [Live]") == "She's Gone (Live)"
+    assert sanitize_component("Artist \u2013 Title") == "Artist - Title"
 
 
 def test_sanitize_collapses_an_illegal_run_to_one_hyphen():
@@ -180,7 +185,7 @@ def test_destination_filename_strict_then_spaces():
             "Atomic Rooster", "The Devils Answer (Live)", "8R5El2HWMIo",
             "messy.webm", strict=True, spaces_to_underscores=True,
         )
-        == "Atomic_Rooster_-_The_Devils_Answer_Live_[8R5El2HWMIo].webm"
+        == "Atomic_Rooster_-_The_Devils_Answer_(Live)_[8R5El2HWMIo].webm"
     )
 
 
@@ -200,7 +205,7 @@ def test_destination_filename_strict_only_keeps_spaces():
             "Atomic Rooster", "The Devils Answer (Live)", "8R5El2HWMIo",
             "messy.webm", strict=True,
         )
-        == "Atomic Rooster - The Devils Answer Live [8R5El2HWMIo].webm"
+        == "Atomic Rooster - The Devils Answer (Live) [8R5El2HWMIo].webm"
     )
 
 
@@ -349,7 +354,7 @@ def test_plan_strict_only_shapes_folders_and_keeps_spaces(tmp_path):
     pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
     assert Path(pm.to_path) == (
         tmp_path / "out" / "rock" / "Hall and Oates"
-        / "Hall and Oates - The Devils Answer Live [8R5El2HWMIo].webm"
+        / "Hall and Oates - The Devils Answer (Live) [8R5El2HWMIo].webm"
     )
 
 
@@ -406,5 +411,5 @@ def test_plan_strict_and_spaces_apply_to_folder_and_override(tmp_path):
     pm = next(p for p in planned if p.youtube_id == "8R5El2HWMIo")
     assert Path(pm.to_path) == (
         tmp_path / "out" / "rock" / "Hall_and_Oates"
-        / "Hall_and_Oates_-_The_Devils_Answer_Live_[8R5El2HWMIo].webm"
+        / "Hall_and_Oates_-_The_Devils_Answer_(Live)_[8R5El2HWMIo].webm"
     )

@@ -16,7 +16,9 @@ supply the missing ground truth in one place:
 ``yt-id worklist`` prints this file and does not write it. ``yt-id worklist
 --sync`` (and ``scan`` / ``fetch`` / ``classify``) call ``sync_worklist``, which
 appends stubs for newly-seen problems and never overwrites fields you have
-edited. The rewrite can drop comments you added in the file.
+edited. ``classify`` and ``worklist --sync`` also fill an empty artist and
+title from the filename when the fetch produced no names. The rewrite can
+drop comments you added in the file.
 ``apply_worklist`` reads it back, assigns any supplied ids, and returns the
 overrides for classify to merge (worklist wins over ``overrides.yaml``).
 """
@@ -30,6 +32,7 @@ from typing import Any
 import yaml
 
 from . import config, db
+from .filename_parse import parse_filename
 
 WORKLIST_FILE = "ytid.yaml"
 
@@ -57,7 +60,10 @@ _HEADER = """\
 #
 # Fill in the blanks, then run:  yt-id classify
 # Regenerated non-destructively: your entries are preserved and new problems
-# are appended. `genre` is optional; `action` is one of move|review|skip.
+# are appended. Empty artist/title may be suggested from the filename.
+# `genre` is optional; `action` is one of move|review|skip.
+# A blank action with a title moves on the next classify. `action: review`
+# holds a suggestion until you edit it.
 #
 # videos:        known YouTube ID that needs artist/title/genre -- fetch had no
 #                clean data, or classify wasn't confident enough to move it.
@@ -206,6 +212,42 @@ def pending_items(db_path: str | Path = db.DEFAULT_DB_PATH) -> dict[str, list[di
     return {"videos": videos, "unidentified": unidentified}
 
 
+def _both_blank(entry: dict) -> bool:
+    return not _nz(entry.get("artist")) and not _nz(entry.get("title"))
+
+
+def _names_for(
+    filename: str,
+    artist: str | None,
+    title: str | None,
+    *,
+    raw: bool,
+) -> tuple[str, str, bool]:
+    """Artist, title, and whether the suggestion should stay in review.
+
+    A decision that already has an artist or title wins. Otherwise the
+    filename is parsed. ``review`` is true only for a filename parse that
+    failed the sanity checks.
+    """
+    if _nz(artist) or _nz(title):
+        return _nz(artist) or "", _nz(title) or "", False
+    parsed = parse_filename(filename or "", raw=raw)
+    return parsed.artist, parsed.title, not parsed.confident
+
+
+def _fill_blank_names(entry: dict, filename: str, artist, title, *, raw: bool) -> None:
+    """Fill artist and title when both are still empty. Leave any other edit."""
+    if not isinstance(entry, dict) or not _both_blank(entry):
+        return
+    suggested_artist, suggested_title, review = _names_for(
+        filename, artist, title, raw=raw,
+    )
+    entry["artist"] = suggested_artist
+    entry["title"] = suggested_title
+    if review and not _nz(entry.get("action")):
+        entry["action"] = "review"
+
+
 def _video_stub(
     filename: str,
     artist: str | None = None,
@@ -237,12 +279,22 @@ def _unidentified_stub(filename: str) -> dict[str, str]:
 def sync_worklist(
     db_path: str | Path = db.DEFAULT_DB_PATH,
     path: str | Path = WORKLIST_FILE,
+    *,
+    fill_names: bool = False,
+    raw_artist_title: bool = False,
 ) -> dict[str, int | bool]:
     """Merge current problems into ``ytid.yaml`` without clobbering user edits.
 
-    New ``videos`` ids and new ``unidentified`` filenames are appended as blank
-    stubs; existing entries are left exactly as-is. The file is only created
-    when there is something to record (or it already exists).
+    New ``videos`` ids and new ``unidentified`` filenames are appended as
+    stubs. Existing artist/title/genre/action values are left as they are.
+
+    When ``fill_names`` is set, an entry whose artist and title are both
+    empty is filled from the classify decision, or from the filename when
+    the decision has neither. A clean filename parse leaves ``action``
+    blank (the next classify moves it). A parse that fails the sanity
+    checks sets ``action: review``. ``raw_artist_title`` skips character
+    reformatting on that filename parse. Scan and fetch pass
+    ``fill_names=False`` so a later classify can still choose raw or cleaned.
     """
     existed = Path(path).is_file()
     data = _load(path)
@@ -263,6 +315,11 @@ def sync_worklist(
                 row["filename"], row.get("artist"), row.get("title"), row.get("genre")
             )
             added_videos += 1
+        if fill_names:
+            _fill_blank_names(
+                data["videos"][yid], row["filename"],
+                row.get("artist"), row.get("title"), raw=raw_artist_title,
+            )
 
     existing_files = {
         e.get("file") for e in data["unidentified"] if isinstance(e, dict)
@@ -272,6 +329,16 @@ def sync_worklist(
         if row["filename"] not in existing_files:
             data["unidentified"].append(_unidentified_stub(row["filename"]))
             added_unident += 1
+    if fill_names:
+        by_file = {
+            e.get("file"): e for e in data["unidentified"] if isinstance(e, dict)
+        }
+        for row in problems["unidentified"]:
+            entry = by_file.get(row["filename"])
+            if entry is not None:
+                _fill_blank_names(
+                    entry, row["filename"], None, None, raw=raw_artist_title,
+                )
 
     total = len(data["videos"]) + len(data["unidentified"])
     wrote = bool(total) or existed

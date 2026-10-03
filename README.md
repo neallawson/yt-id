@@ -98,11 +98,13 @@ answers, so you edit one file instead of juggling `resolve` and `overrides.yaml`
 - **`artists:`** — optional `artist → genre` shortcuts.
 
 `scan`, `fetch`, and `classify` append new problems to it. Your filled-in
-answers are kept. Inspect the file, or append again yourself, with:
+answers are kept. `classify` and `yt-id worklist --sync` also suggest an
+artist and title when both fields are still empty and the fetch produced no
+names. Inspect the file, or append again yourself, with:
 
 ```bash
 yt-id worklist          # print ytid.yaml; does not write
-yt-id worklist --sync   # append new pending items and rewrite ytid.yaml
+yt-id worklist --sync   # append new items, fill empty artist/title, rewrite ytid.yaml
 ```
 
 The printout shows each entry with its **line number** and a progress summary,
@@ -125,10 +127,43 @@ yt-id worklist --missing-genre --compact # one tab-separated line each
 - **`--compact`** prints `LINE⇥action⇥id⇥filename`, handy for
   `$EDITOR +LINE ytid.yaml` and piping.
 
-`--sync` rewrites `ytid.yaml`, but only to append new problems. Entries you
-have already answered stay. Comments you added in the file can be dropped,
-because the file is written back through the YAML dumper. `scan`, `fetch`, and
-`classify` run that same append.
+`--sync` rewrites `ytid.yaml`. It appends new problems and, where `artist` and
+`title` are both still empty, fills them. Entries you have already answered
+stay. Comments you added in the file can be dropped, because the file is
+written back through the YAML dumper. `scan` and `fetch` only append. `classify`
+appends and fills empty names.
+
+#### Suggestions from the filename
+
+When YouTube returned an artist or a title, that guess is what gets written.
+When it returned neither, the filename is parsed:
+
+1. The YouTube id is removed (`[id]` brackets and all, or a dash-suffix `-id`).
+2. The remainder is split on the first ` - `, en dash, em dash, `|`, `｜`, `~`,
+   or fullwidth colon. A slash is not a split, so `AC/DC - Thunderstruck`
+   separates into two names.
+3. No separator means the whole remainder is the title and the artist stays
+   blank (a documentary or other title-only file).
+4. Each side goes through `sanitize_component`, the same cleaner `plan` uses.
+   `[Live]` becomes `(Live)`. `AC/DC` becomes `AC-DC`. Curly quotes become `'`.
+   Unicode dashes become `-`. Notes such as `(Live)`, `(Audio)`,
+   `(Lyric Video)`, and `(480p)` stay.
+
+A clean split (both sides non-empty, not the same string, and neither side
+almost the whole name) leaves `action` blank. The next `classify` moves it.
+You do not have to retype it. A split that fails those checks is still filled
+in, with `action: review`, and will not move until you edit it.
+
+```bash
+yt-id classify                         # suggest cleaned names into empty fields
+yt-id classify --raw-artist-title      # same split, characters left as in the filename
+yt-id worklist --sync --raw-artist-title
+```
+
+`--raw-artist-title` applies at the moment the empty fields are filled. A later
+classify will not reclean a value that is already there. `--strict-names` and
+`--spaces-to-underscores` still apply only when `plan` builds the destination
+path. The `file:` line is always the original filename.
 
 `classify` applies `ytid.yaml` first — assigning any supplied IDs and layering
 its per-video/artist overrides on top of `overrides.yaml` (the working-dir file
@@ -320,14 +355,15 @@ and every filename, including a title typed in `ytid.yaml`.
 
 Every name goes through three steps, in order:
 
-1. **OS-safe, always.** Drop characters that are illegal on Windows
-   (`< > : " / \ | ? *` and controls). If that would glue two words together,
-   leave one hyphen (`AC/DC` → `AC-DC`, `Hello?` → `Hello`). Spaces,
-   parentheses, `&`, and apostrophes stay. Reserved names (`CON`, `NUL`, …)
-   become `Unknown`.
+1. **OS-safe, always.** Square brackets become parentheses (`[Live]` →
+   `(Live)`). Unicode dashes become `-` and curly quotes become `'`. Then drop
+   characters that are illegal on Windows (`< > : " / \ | ? *` and controls).
+   If that would glue two words together, leave one hyphen (`AC/DC` → `AC-DC`,
+   `Hello?` → `Hello`). Spaces, parentheses, `&`, and apostrophes stay.
+   Reserved names (`CON`, `NUL`, …) become `Unknown`.
 2. **`--strict-names`, off by default.** Also drop shell-hostile punctuation
-   (quotes, parentheses, braces, `! # @ ~ % ; $`, and commas). `&` becomes
-   ` and `, so `The Devils Answer (Live)` becomes `The Devils Answer Live`.
+   (quotes, braces, `! # @ ~ % ; $`, and commas). Parentheses stay, so
+   `(Live)` is still `(Live)`. `&` becomes ` and `.
 3. **`--spaces-to-underscores`, off by default.** Replace each space with `_`,
    including the space before `[id]`.
 
