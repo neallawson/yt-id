@@ -1,14 +1,8 @@
-"""Command-line entry point wiring the five pipeline stages together.
+"""Command-line entry point for the yt-id pipeline.
 
-    yt-id scan     --source DIR
-    yt-id fetch    [--sleep S --jitter J --limit N --retry-errors ...]
-    yt-id classify
-    yt-id plan     --target DIR [--out PREFIX]
-    yt-id apply    --manifest FILE [--undo] [--apply]
-    yt-id export   [--format {csv,json,both}] [--out PREFIX]
-
-Everything defaults to safe/dry-run behavior; `apply` requires an explicit
---apply flag to actually move files.
+Top-level help is printed by ``helptext``. ``yt-id`` with no arguments prints
+the command reference. ``yt-id --help`` prints a usage summary and then that
+same reference.
 """
 
 from __future__ import annotations
@@ -17,12 +11,14 @@ import argparse
 import json
 import sys
 
+from . import __version__
 from . import apply as apply_mod
 from . import classify as classify_mod
 from . import config as config_mod
 from . import db
 from . import export as export_mod
 from . import fetch as fetch_mod
+from . import helptext as helptext_mod
 from . import movelog as movelog_mod
 from . import plan as plan_mod
 from . import resolve as resolve_mod
@@ -364,8 +360,16 @@ def _cmd_export(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="yt-id", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="yt-id",
+        description="Organize YouTube-sourced videos into genre and artist folders.",
+    )
     parser.add_argument("--db", default=db.DEFAULT_DB_PATH, help="SQLite DB path")
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_scan = sub.add_parser("scan", help="index source folder by YouTube ID")
@@ -595,8 +599,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    args_list = sys.argv[1:] if argv is None else argv
+    if not args_list:
+        print(helptext_mod.command_reference(), end="")
+        return 0
+    if args_list in (["-h"], ["--help"]):
+        print(helptext_mod.usage_help(), end="")
+        return 0
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_list)
     return args.func(args)
 
 
